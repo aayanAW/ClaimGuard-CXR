@@ -172,7 +172,6 @@ echo "Both wires are good:"
 echo "  - Local file:    $LOCAL_FILE"
 echo "  - Modal secret:  anthropic"
 echo
-echo "Now go back to Claude Code and say:"
-echo
-echo "    key fixed, fire 1 and 3"
+echo "API key is wired up. You can now run the silver-labeling and"
+echo "baseline jobs (e.g. fire stages 1 and 3 of the pipeline)."
 echo
