@@ -1,6 +1,20 @@
 # ClaimGuard-CXR: Claim-Level Verification and Conformal False Discovery Rate Control for Radiology Report Generation
 
-> **⚠️ SUPERSEDED BY v6.0 (2026-04-19)** — The authoritative current specification is **`ARCHITECTURE_V6_0_NEURIPS_MAIN.md`** with companion **`PLAN_V6_17DAY_NEURIPS.md`** (17-day sprint to NeurIPS 2026 Evaluations & Datasets track, deadline 2026-05-06). This proposal document is retained as historical record only. Do NOT use the sections below for current design decisions.
+> **⛔ SUPERSEDED BY PIVOT A+B (2026-05-03)** — The verifier-centric proposal below is no longer the project. A 2026-05-03 novelty audit verified four scoops (Restrepo 2025 SMS / Z. Li 2025 SFC [previously miscited as "Liu 2025"; first author is **Zichao Li**, verified via arXiv title-page on 2026-05-05] / Gui 2024 Conformal Alignment / Z. Li 2025 CONFLVLM [different first author: **Zhuohang Li**]) against the prior framing; the project pivoted to a *generator-side* causal-faithfulness method with dual-adversarial filtering. The current authoritative docs are:
+> - **`PIVOT_AB_FAITHFUL_GENERATOR_PLAN.md`** — strategic plan, 11 phases
+> - **`PIVOT_AB_EXECUTION_LOG.md`** — running execution journal
+> - **`PIVOT_PLAN_2026-05-03.md`** — pivot decision context
+> - **`HANDOFF_PIVOT_AB_PHASE_4_BLOCKED_2026-05-04.md`** — most-recent state
+>
+> **Current thesis.** Train a radiology report generator (MedGemma-4B-IT backbone, LoRA rank 16) with a composite loss `L_SFT + λ_faith · L_faith + λ_dual_t · L_HOFilter_text + λ_dual_v · L_HOFilter_image`, plus an inline gradient-norm monitor that predicts post-training image-blindness, plus a methodological patch (IMG_correct) that retroactively audits how much of the prior ClaimGuard v5.3 IMG=69pp result was *induced inversion* vs faithful grounding.
+>
+> **Current target venue.** NeurIPS / ICLR / ICML main track. Quality-driven, not deadline-driven (per user instruction). The May 6, 2026 NeurIPS submission window is no longer in scope.
+>
+> **What carries over.** The conformal Claim Triage (cfBH) survives in the evaluation harness. The public-data-only commitment (no PhysioNet credentialing) is unchanged: training/eval restricted to OpenI, ChestX-Det10, PadChest-GR, IU X-ray, ReXVal.
+>
+> **Earlier supersession marker (2026-04-19).** `ARCHITECTURE_V6_0_NEURIPS_MAIN.md` + `PLAN_V6_17DAY_NEURIPS.md` were the previous authoritative spec (NeurIPS 2026 E&D, 17-day sprint). Both are themselves now superseded by the Pivot A+B docs above; do NOT use them for current design decisions.
+>
+> The proposal text below is retained as historical record only.
 
 **Target venue (v2 pivot, 2026-04-17):** npj Digital Medicine or Medical Image Analysis (primary); Nature Communications (stretch); Nature Machine Intelligence (only if radiology co-author + PhysioNet credentialing land).
 

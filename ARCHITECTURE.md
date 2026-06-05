@@ -6,7 +6,33 @@
 
 ---
 
-## 🔖 SCOPE NOTE FOR NEURIPS 2026 SUBMISSION (Added v2.1, 2026-04-04)
+## ⛔ SUPERSEDED — PIVOT A+B (2026-05-03)
+
+**This document does NOT describe the current project.** Pivot A+B replaced the verifier-centric ClaimGuard-CXR design after a 2026-05-03 novelty audit verified four scoops (Restrepo 2025 SMS, Z. Li 2025 SFC [previously miscited as "Liu 2025" — first author is **Zichao Li**, verified 2026-05-05], Gui 2024 Conformal Alignment, Z. Li 2025 CONFLVLM [different first author: **Zhuohang Li**]) against the prior work. The current authoritative docs are:
+
+- **[PIVOT_AB_FAITHFUL_GENERATOR_PLAN.md](PIVOT_AB_FAITHFUL_GENERATOR_PLAN.md)** — strategic plan, 11 phases, contributions, risks
+- **[PIVOT_AB_EXECUTION_LOG.md](PIVOT_AB_EXECUTION_LOG.md)** — running execution journal
+- **[PIVOT_PLAN_2026-05-03.md](PIVOT_PLAN_2026-05-03.md)** — pivot decision context (4 verified scoops)
+- **[HANDOFF_PIVOT_AB_PHASE_4_BLOCKED_2026-05-04.md](HANDOFF_PIVOT_AB_PHASE_4_BLOCKED_2026-05-04.md)** — most-recent state-of-play
+
+**Current thesis (one sentence).** A radiology report generator can be trained to be evidence-sensitive at the *generation* stage by combining (a) a causal-faithfulness loss applied online over image-masked and image-flipped counterfactuals, (b) a dual adversarial filter that downweights training samples solvable by either text-only or image-only baselines, and (c) a gradient-norm-based training-time monitor that predicts when evidence-blindness is emerging.
+
+**Current backbone.** MedGemma-4B-IT (Google HAI-DEF, research-only licence). CheXagent-2-3B was the original choice but its tokenizer-embedded image paradigm (no `pixel_values` kwarg) blocks counterfactual training; verified by introspection on 2026-05-03.
+
+**Current contributions (three).**
+1. **Dual-Adversarial Causal-Faithfulness Training** — composite loss `L_SFT + λ_faith · L_faith + λ_dual_t · L_HOFilter_text + λ_dual_v · L_HOFilter_image`. The image-only adversarial filter is the genuine novelty axis vs. Z. Li 2025 SFC (which only does text-only).
+2. **Evidence-Blindness Gradient-Norm Monitor** — track `R(t) = g_img / (g_img + g_txt)` and cross-modal attention rank during training; fit a logistic predictor of post-training IMG > 5pp.
+3. **IMG_correct diagnostic** — patches the original IMG metric to exclude the "induced inversion" failure mode (`correct_full ∧ incorrect_masked ∧ Δp_correct ≥ τ`), and is applied retroactively to prior v5.0–v5.3 checkpoints to quantify how much of the previously-reported 69pp IMG was induced inversion vs faithful grounding.
+
+**Current target venue.** NeurIPS / ICLR / ICML main track. **Quality-driven, not deadline-driven** (per user instruction). The original NeurIPS 2026 May 6 deadline is no longer the target; the next viable submission window is NeurIPS 2027 main / ICLR 2027 / ICML 2027.
+
+**What carries over from v2.1:** the conformal Claim Triage (cfBH) and the public-data-only commitment (no PhysioNet credentialing) survive intact. Components 1–6 (the verifier-side stack described below) are retired in favour of the generator-side pivot.
+
+---
+
+## 🔖 SCOPE NOTE FOR NEURIPS 2026 SUBMISSION (Added v2.1, 2026-04-04) — HISTORICAL
+
+The text below is **historical record** of the verifier-side scope. Do NOT use these sections for current design decisions; use the Pivot A+B docs above.
 
 After a deep code + data audit, the following scope reduction applies to the
 NeurIPS 2026 submission:

@@ -1,6 +1,8 @@
 # ClaimGuard-CXR v6.0 — Evidence-Blindness in Medical Multimodal Verifiers
 
-**Status:** authoritative spec for NeurIPS 2026 submission
+> **⛔ SUPERSEDED BY PIVOT A+B (2026-05-03).** This v6.0 document is no longer authoritative. A 2026-05-03 novelty audit verified four scoops against the verifier-side framing; the project pivoted to a generator-side causal-faithfulness method. Current authoritative docs: `PIVOT_AB_FAITHFUL_GENERATOR_PLAN.md`, `PIVOT_AB_EXECUTION_LOG.md`, `HANDOFF_PIVOT_AB_PHASE_4_BLOCKED_2026-05-04.md`. The v6.0 evidence-blindness diagnostic survives — IMG/IMG_correct are part of the Pivot A+B evaluation harness — but the verifier-side training stack is retired.
+
+**Status:** authoritative spec for NeurIPS 2026 submission *(historical — see banner above)*
 **Author:** Aayan Alwani (Laughney Lab, Weill Cornell Medicine)
 **Date:** 2026-04-19
 **Target venue:** **NeurIPS 2026 Evaluations & Datasets track** (primary); Main-track (fallback); GenAI4Health workshop (fallback)
