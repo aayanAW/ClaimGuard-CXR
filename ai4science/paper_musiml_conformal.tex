@@ -1,0 +1,365 @@
+%%%%%%%% Muslims in ML (MusIML) Workshop @ ICML 2026 %%%%%%%
+%
+% 4-page main + unlimited references. Uses official ICML 2026 style
+% (double-blind by default; strips author block unless [accepted] set).
+% Style files (icml2026.sty / .bst / algorithm.sty / algorithmic.sty /
+% fancyhdr.sty) live alongside this .tex file. Bibliography at
+% pivot_ab_references.bib.
+%
+% Companion submission: paper_musiml_evidence_blinding.tex (generator side).
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\documentclass{article}
+
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{hyperref}
+
+\usepackage{icml2026}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{mathtools}
+
+\usepackage[capitalize,noabbrev]{cleveref}
+
+\icmltitlerunning{Counterfactual Audits Precede Conformal Trust}
+
+\begin{document}
+
+\twocolumn[
+  \icmltitle{Counterfactual Audits Must Precede Conformal Trust \\
+             for Multimodal Medical Claim Verifiers}
+
+  \begin{icmlauthorlist}
+    \icmlauthor{Anonymous Authors}{anon}
+  \end{icmlauthorlist}
+  \icmlaffiliation{anon}{Anonymous Institution}
+
+  \icmlcorrespondingauthor{Anonymous Authors}{anon@example.org}
+
+  \icmlkeywords{evidence-blindness, multimodal medical verification,
+                radiology report generation, counterfactual diagnostic,
+                hypothesis-only filter, conformal selection,
+                trustworthy AI}
+
+  \vskip 0.3in
+]
+
+\printAffiliationsAndNotice{}
+
+\begin{abstract}
+Multimodal claim verifiers are placed downstream of chest-X-ray
+report generators as a safety layer, and several recent verifiers
+report above $90\%$ accuracy on hallucination-detection benchmarks.
+We show that those numbers are attainable by a verifier that never
+uses the image. We call this failure mode \emph{evidence-blindness}.
+We define three counterfactual perturbations of a verifier's input and
+measure the accuracy drop: image zeroing (IMG), within-batch evidence
+shuffling (ESG), and left--right image flipping on laterality
+claims (IPG). On a public-data benchmark, the configuration with the
+highest validation accuracy is evidence-blind on IMG ($2.17$\,pp);
+adding an image-masked consistency loss and an adversarial
+hypothesis-only filter raises IMG to $69.24$\,pp at matched test
+accuracy. The mitigation is brittle: under leave-one-site-out
+training, IMG regresses to baseline on the held-out site. We further
+wrap inverted conformal Benjamini--Hochberg selection around each
+verifier and find that every evidence-blind configuration returns an
+empty trusted set; only the non-blind verifier yields a populated one.
+A conformal guarantee on an evidence-blind verifier has nothing to
+certify. Counterfactual sensitivity testing should precede both
+aggregate-accuracy reporting and conformal trust wrapping for any
+multimodal medical verifier.
+\end{abstract}
+
+\section{Introduction}
+\label{sec:intro}
+
+Radiology report generators are entering radiologist review queues
+as draft producers, with reported hallucination rates of
+$8$--$15\%$ \citep{zhang2025radflag, hardy2025rextrust}. The
+community response has been to insert a claim-level verifier
+downstream, with several systems reporting AUROC above $90\%$ on
+aggregate hallucination-detection benchmarks. Discussion has
+moved toward which conformal guarantee should wrap these verifiers
+\citep{mohri2024conformal, angelopoulos2021gentle, gui2024conformal,
+li2025conflvlm}.
+
+Aggregate accuracy does not distinguish a verifier that uses the
+image from one that exploits shortcut structure in the claim and
+evidence text. \citet{gururangan2018annotation} and
+\citet{poliak2018hypothesis} established this for natural language
+inference: hypothesis-only classifiers approached the accuracy of
+full-input classifiers on SNLI and MultiNLI without observing the
+premise, which reshaped NLI evaluation practice.
+\citet{restrepo2025sms} address the radiology instance directly
+with Selective Modality Shifting on MIMIC-CXR and FairVLMed, and
+report textual dependency across four generalist VLMs and two
+medical-specialist VLMs; that work explicitly leaves training-time
+mitigation to future work, and the conformal-selection literature
+wraps an existing predictor without modifying it.
+
+This paper makes two contributions. \textbf{(i)} We define
+evidence-blindness through three counterfactual metrics --- IMG, ESG,
+and a laterality-flip variant IPG that does not appear in the SMS
+family --- that apply to any binary multimodal verifier including
+closed-weight APIs. \textbf{(ii)} We train a cross-modal verifier
+on a public, non-credentialed chest-radiograph benchmark; its
+highest-validation-accuracy configuration is evidence-blind on IMG.
+A consistency loss combined with an adversarial hypothesis-only
+filter raises IMG from $2.17$ to $69.24$\,pp at matched accuracy. An
+inverted conformal Benjamini--Hochberg selection procedure collapses
+to an empty trusted set on every evidence-blind configuration we
+tested, and returns a populated trusted set only on the non-blind
+one. The counterfactual diagnostic should run \emph{before}
+conformal wrapping in any deployment pipeline.
+
+\section{Methods and Benchmark}
+\label{sec:methods}
+
+\paragraph{Counterfactual diagnostics.} Let $f$ be a binary
+multimodal verifier mapping
+$(x_{\mathrm{img}}, x_{\mathrm{claim}}, x_{\mathrm{evid}})$ to
+$\{\textsc{sup}, \textsc{con}\}$. On a labelled evaluation set
+$\mathcal{D}$:
+\begin{align}
+\mathrm{IMG}(f) &= \mathrm{acc}(f, \mathcal{D}) -
+                   \mathrm{acc}(f, \mathcal{D}^{\mathrm{img}=0}), \\
+\mathrm{ESG}(f) &= \mathrm{acc}(f, \mathcal{D}) -
+                   \mathbb{E}_{\pi}\!\left[\mathrm{acc}(f, \mathcal{D}^{\mathrm{evid}=\pi})\right], \\
+\mathrm{IPG}(f) &= \mathrm{acc}(f, \mathcal{D}_{\mathrm{lat}}) -
+                   \mathrm{acc}(f, \mathcal{D}_{\mathrm{lat}}^{\mathrm{flip}}),
+\end{align}
+in percentage points. $\mathcal{D}^{\mathrm{img}=0}$ replaces each
+image with a zero tensor (we use literal zeros for the IMG diagnostic
+since the verifier inputs are normalised CLIP features, not pixel
+intensities); $\mathcal{D}^{\mathrm{evid}=\pi}$ replaces evidence
+text with $x_{\mathrm{evid}}^{(\pi(i))}$ under a within-batch
+derangement $\pi$ averaged over three seeds;
+$\mathcal{D}_{\mathrm{lat}}^{\mathrm{flip}}$ horizontally flips the
+image on the subset of claims matching
+\texttt{\textbackslash b(left|right|bilateral)\textbackslash b}.
+We label $f$ \emph{evidence-blind} if $\mathrm{IMG}(f) < 5$\,pp or
+$\mathrm{ESG}(f) < 5$\,pp; threshold sensitivity over
+$\{3, 5, 7, 10\}$\,pp is reported in the supplementary appendix.
+The diagnostic requires only input substitution and applies to
+closed-weight verifiers exposed via API.
+
+\paragraph{Cross-modal verifier.} Images at $224 \times 224$ pass
+through BiomedCLIP ViT-B/16 \citep{zhang2024biomedclip}; the top
+four of twelve transformer blocks are trainable. Claim and evidence
+tokens are jointly encoded by RoBERTa-large \citep{liu2019roberta}
+via the standard text-pair API; the top eight of twenty-four layers
+are trainable. Both modalities project to $d = 768$. A learnable
+$[\mathrm{VERDICT}]$ token is prepended at position zero of the
+fused sequence, which passes through four bidirectional cross-modal
+transformer layers with twelve heads each. Three heads attach to
+the verdict-token output: a binary verdict head (2-way softmax), a
+support-score head (sigmoid scalar, used downstream for conformal
+calibration), and a $14 \times 14$ per-patch grounding head (sigmoid
+map). The model has $\approx 480$\,M total parameters of which
+$122$\,M are trainable. Full optimisation details and the loss
+equation are in the supplementary appendix.
+
+\paragraph{Composite loss and hypothesis-only filter.} The training
+loss is a five-term composite: classification cross-entropy
+($\mathcal{L}_{\mathrm{cls}}$); bounding-box-supervised patch
+grounding ($\mathcal{L}_{\mathrm{ground}}$, $\lambda = 0.5$); an
+image-masked consistency margin
+$\mathcal{L}_{\mathrm{consist}} = \mathrm{ReLU}(0.2 - (p_{\mathrm{full}}(y)
+- p_{\mathrm{img}=0}(y)))$ ($\lambda = 0.3$); a contrastive evidence
+margin restricted to \textsc{sup} anchors ($\lambda = 0.3$); and an
+MC-dropout uncertainty regulariser ($\lambda = 0.1$). The adversarial
+hypothesis-only (HO) filter is a separate RoBERTa-large cross-encoder
+trained for one epoch on $(\text{claim}, \text{evidence}) \to y$
+pairs with \emph{no} image input. At training time, rows on which
+the HO filter's gold-class probability exceeds $0.7$ have
+$\mathcal{L}_{\mathrm{cls}}$ downweighted by $0.2\times$; the other
+four terms retain full weight. Loss-drop ablations
+(supp.\ appendix) show $\mathcal{L}_{\mathrm{consist}}$
+and the HO filter are the two load-bearing terms: removing either
+collapses IMG to $\leq 6$\,pp.
+
+\paragraph{Benchmark.} \textsc{GroundBench-v6} combines three public
+sources: OpenI \citep{demner2016openi} ($\sim 4{,}000$ frontal
+radiographs), ChestX-Det10 \citep{liu2020chestxdet} ($\sim 3{,}500$
+images with pixel annotations), and PadChest-GR
+\citep{castro2024padchestgr} ($4{,}555$ bilingual studies with
+per-sentence radiologist boxes). Patient-stratified splits at
+$70/10/10/10$ yield $28{,}361$ train, $4{,}046$ validation,
+$4{,}046$ calibration, and $4{,}132$ test claims. For real-RRG
+evaluation, $1{,}500$ findings reports from MAIRA-2
+\citep{bannur2024maira2}, CheXagent-2 \citep{chen2024chexagent}, and
+MedGemma-4B-IT \citep{google2024medgemma} are decomposed into
+$2{,}707$ atomic claims and silver-labelled by a three-LLM judge
+ensemble \citep{ostmeier2024green}. Full benchmark detail is in
+the supplementary appendix.
+
+\section{Results}
+\label{sec:results}
+
+\paragraph{The classification baseline is evidence-blind.}
+Table~\ref{tab:headline} reports the diagnostic on the
+$2{,}906$-claim in-distribution test split. The cross-entropy
+baseline v5.0 reaches $90.9\%$ test accuracy at IMG $= 2.03$\,pp;
+v5.1 adds patch grounding, reaches the highest validation accuracy
+($91.1\%$), and stays evidence-blind at IMG $= 2.17$\,pp. A
+practitioner selecting on aggregate accuracy alone would ship the
+most blind of the configurations we trained.
+
+\begin{table}[t]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\caption{\textbf{Counterfactual diagnostic.} Top: in-distribution
+test split. Bottom: cross-site leave-one-out (the v5.3 loss
+composition retrained for two epochs on the non-held-out sites and
+evaluated on the held-out site). A configuration is
+\emph{evidence-blind} if IMG $< 5$\,pp or ESG $< 5$\,pp.}
+\label{tab:headline}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Config} & \textbf{Test acc} & \textbf{IMG} & \textbf{ESG} & \textbf{Blind?} \\
+\midrule
+v5.0-base       & 0.909 & \textbf{2.03}  & 19.71 & yes \\
+v5.1-ground     & 0.921 & \textbf{2.17}  & 21.13 & yes \\
+v5.2-real       & 0.923 & 62.90 & 18.74 & no  \\
+v5.3-contrast   & \textbf{0.925} & \textbf{69.24} & 18.56 & no  \\
+v6.0-retrain    & 0.911 & 70.21 & 20.01 & no  \\
+\midrule
+\multicolumn{5}{l}{\emph{Cross-site leave-one-out (held-out site):}} \\
+held out: OpenI         & 0.853 & \textbf{3.21}  & $-0.02$ & yes \\
+held out: ChestX-Det10  & 0.660 & 28.41 & \textbf{2.69}  & yes \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Consistency $+$ HO filter is the load-bearing intervention.}
+v5.2 adds both. IMG rises from $2.17$ to $62.90$\,pp; the zero-image
+accuracy collapses to $29.4\%$ (below random) because the
+consistency loss rewards verdict divergence under image masking,
+while aggregate accuracy rises to $92.3\%$. Adding contrastive
+evidence (v5.3) lifts IMG to $69.24$\,pp at $92.5\%$ accuracy. A
+confirmatory v6.0 retrain reaches $70.21$\,pp.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{figures/F2_decoupling_scatter.pdf}
+\caption{\textbf{Aggregate accuracy and image-grounding are
+independent axes.} Circles: trained configurations. Squares:
+zero-shot detectors on a $500$-claim real-RRG subset. Shaded band:
+evidence-blind zone ($\mathrm{IMG} < 5$\,pp). The
+highest-validation-accuracy configurations (v5.0, v5.1) sit in the
+blind zone at $90$--$92\%$ accuracy; zero-shot baselines BiomedCLIP
+and MedGemma-4B-IT are blind on the ESG axis at intermediate
+accuracy.}
+\label{fig:decoupling}
+\end{figure}
+
+\paragraph{Field audit on real-RRG hallucinations.} We extend the
+diagnostic to $500$ silver-labelled real-RRG claims with four
+zero-shot detectors (Fig.~\ref{fig:decoupling}; full numbers in
+the supplementary appendix). BiomedCLIP zero-shot reaches
+$0.538$ accuracy with IMG $= 8.0$\,pp and ESG $= 0.0$\,pp (blind on
+ESG). MedGemma-4B-IT used as a verifier reaches $0.758$ with
+IMG $= 14.0$\,pp and ESG $= 2.0$\,pp (blind on ESG). MAIRA-2 used
+zero-shot clears both thresholds (IMG $= 32.2$\,pp,
+ESG $= 6.6$\,pp) but at near-chance accuracy ($0.498$). The
+combination matters: a verifier can fail one axis without failing
+the other, and aggregate accuracy alone does not predict the joint
+outcome.
+
+\paragraph{Cross-site regression and deployment alarm.} Two
+leave-one-site-out configurations trained under the v5.3 loss
+composition show the mitigation does not transfer
+(Table~\ref{tab:headline}, bottom). The held-out OpenI run
+regresses to IMG $= 3.21$\,pp (within $1.2$\,pp of the v5.0
+baseline); held-out ChestX-Det10 keeps most of the IMG mitigation
+but drops to ESG $= 2.69$\,pp, below threshold. The same three
+metrics that flag training-time blindness flag post-deployment
+blindness. This is the second role of the same diagnostic.
+
+\paragraph{Conformal selection collapses on blind verifiers.} We
+wrap an inverted conformal Benjamini--Hochberg procedure around
+each verifier's support score, calibrated on a held-out
+$4{,}046$-claim calibration split at target $\alpha = 0.10$. Only
+v5.3-contrast produces a populated trusted set:
+$n_{\mathrm{green}} = 985$ claims with achieved FDR $= 0.91\%$ and
+power $39.6\%$. Configurations v5.0, v5.1, and v5.2 collapse to
+$n_{\mathrm{green}} = 0$: v5.0 and v5.1 because they are
+evidence-blind, and v5.2 because the joint distribution of
+(support score, true label) is not separable enough below the
+target level (supp.\ appendix). A conformal guarantee
+on a blind verifier has nothing to certify.
+
+\section{Discussion}
+\label{sec:discussion}
+
+The cross-entropy baseline reports a competitive $90.9\%$ test
+accuracy while being image-blind at IMG $= 2.03$\,pp. The
+consistency loss and HO filter act on disjoint failure modes: the
+consistency loss penalises verdict-invariance under image masking,
+and the HO filter downweights training rows the text-only model
+already solves. Patch grounding alone (v5.1) does not move IMG,
+mirroring NLI partial-input findings
+\citep{gururangan2018annotation, poliak2018hypothesis} that
+auxiliary supervision on input attribution does not by itself
+prevent shortcut exploitation.
+
+The mitigation indexes on training-distribution shortcuts. Under
+$\mathrm{site}_{\mathrm{train}} \neq \mathrm{site}_{\mathrm{test}}$,
+the shortcut structure changes and the mitigation has nothing to
+suppress --- but the same diagnostic catches the post-shift
+blindness. This makes the counterfactual diagnostic the
+appropriate alarm signal in both training-time selection and
+deployment-time monitoring; the appropriate fix for the cross-site
+regime is distribution-shift-aware methodology (e.g., weighted
+conformal inference under covariate shift
+\citep{tibshirani2019conformal}) layered on top of the same
+diagnostic.
+
+The conformal-selection collapse on blind verifiers sharpens the
+Mohri--Hashimoto conformal-factuality guarantee
+\citep{mohri2024conformal}: marginal coverage is preserved on
+whatever signal the underlying verifier emits, but if that signal
+is image-blind the resulting trusted set has no clinical content.
+Wrapping a frozen verifier in conformal selection is necessary but
+not sufficient for trustworthy deployment.
+
+\section{Limitations and Conclusion}
+\label{sec:limits}
+
+Three limitations bound our claims. \textbf{(L1) Scale.} The
+benchmark spans approximately $7{,}500$ images and $25{,}176$
+training claims --- enough to expose evidence-blindness as a
+measurable failure mode but not enough to estimate its prevalence
+at population scale. \textbf{(L2) Single-seed training.} All
+training runs use a single random seed; multi-seed replication is
+deferred. \textbf{(L3) Spatial residual.} Laterality-turning
+claims are insensitive to horizontal flips
+(IPG $\in [-0.88, +0.88]$\,pp across all configurations); the
+consistency loss targets image \emph{presence} rather than spatial
+arrangement, and closing this residual would require an
+image-encoder-level intervention.
+
+We introduced a counterfactual diagnostic for multimodal medical
+claim verification (IMG, ESG, IPG), a training-time recipe that
+closes the in-distribution IMG from $2.03$\,pp to $69.24$\,pp at
+$+1.6$\,pp accuracy, and the empirical observation that inverted
+conformal selection collapses to an empty trusted set on every
+evidence-blind verifier we tested. Counterfactual
+evidence-sensitivity testing should precede aggregate-accuracy
+reporting and conformal trust-selection for any multimodal medical
+verifier. Benchmark maintainers and submission checklists in this
+area should report partial-input baselines alongside aggregate
+accuracy --- as the NLI community did after
+\citet{gururangan2018annotation} and \citet{poliak2018hypothesis}.
+
+\bibliographystyle{icml2026}
+\bibliography{pivot_ab_references}
+
+\end{document}

@@ -1,0 +1,1077 @@
+%%%%%%%% ICML 2026 Workshop Submission %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+% Workshop-track submission using the official ICML 2026 style:
+%   main body + unlimited references/appendix, double-blind.
+%   The icml2026 style file auto-strips author information unless
+%   the [accepted] option is provided. Author names are kept symbolic
+%   here for safety.
+%
+% Style files (icml2026.sty / icml2026.bst / algorithm.sty /
+% algorithmic.sty / fancyhdr.sty) live alongside this .tex file.
+% Bibliography lives in pivot_ab_references.bib (verified entries).
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\documentclass{article}
+
+% Recommended, but optional, packages for figures and better typesetting:
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage{booktabs}
+\usepackage{multirow}
+
+% hyperref makes hyperlinks in the resulting PDF.
+\usepackage{hyperref}
+
+% Use the following line for the initial blind version submitted for review:
+\usepackage{icml2026}
+
+% For preprint, use:
+% \usepackage[preprint]{icml2026}
+%
+% If accepted, instead use the following line for the camera-ready submission:
+% \usepackage[accepted]{icml2026}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{mathtools}
+
+\usepackage[capitalize,noabbrev]{cleveref}
+
+% Running title for ICML page-headers (under 40 chars).
+\icmltitlerunning{Causally-Faithful Radiology Report Generation}
+
+\begin{document}
+
+\twocolumn[
+  \icmltitle{Causally-Faithful Radiology Report Generation \\
+             via Dual-Adversarial Counterfactual Training}
+
+  % Anonymous author block. The icml2026 style file auto-strips this
+  % in blind mode (i.e., unless [accepted] is set).
+  \begin{icmlauthorlist}
+    \icmlauthor{Anonymous Authors}{anon}
+  \end{icmlauthorlist}
+  \icmlaffiliation{anon}{Anonymous Institution}
+
+  \icmlcorrespondingauthor{Anonymous Authors}{anon@example.org}
+
+  \icmlkeywords{evidence-blindness, radiology report generation,
+                causal-faithfulness, dual-adversarial training,
+                medical AI safety}
+
+  \vskip 0.3in
+]
+
+% This is necessary in blind mode so that the affiliation line is hidden:
+\printAffiliationsAndNotice{}
+
+\begin{abstract}
+Vision-language models that draft radiology reports often produce text
+that does not actually reflect the underlying chest X-ray. Diagnostic
+studies have documented this \emph{evidence-blindness}, and existing
+fixes wrap the trained model in inference-time filters or conformal
+selection without changing what the model has learned. We instead
+intervene at training time. We propose
+\textbf{dual-adversarial causal-faithfulness training}, a LoRA fine-tune
+of MedGemma-4B-IT with two ingredients: a symmetric adversarial filter
+that downweights training examples that a text-only or an image-only
+predictor can already solve, and a causal-faithfulness loss that
+penalises the model whenever its probability of the gold token fails
+to drop under image masking. We pair the recipe with
+\textbf{IMG\_correct}, a refinement of the standard image-masking-gap
+diagnostic that excludes a known failure mode in which a consistency-
+loss-trained model merely flips its top prediction under masking
+without losing support for the right answer. On the public-data OpenI
+chest-X-ray collection, our method drives the image-masking gap from
+near zero to roughly $75$\,pp at matched token-level accuracy across
+three seeds. A complementary \emph{cross-counterfactual} evaluation,
+which we run as an honesty check, finds the gain is largely specific to
+the counterfactual the loss trained on: image cropping and centre
+occlusion collapse the gap, so the model has tightly fit its training-
+time counterfactual rather than the image as a whole. Applying
+IMG\_correct retroactively to a set of $18$ previously-reported
+verifier configurations reveals that the methodological refinement
+\emph{verifies} prior numbers rather than overturning them. We release
+training data, code, and weights.
+\end{abstract}
+
+\section{Introduction}
+\label{sec:intro}
+
+A growing body of work documents that multimodal medical AI systems --- vision-
+language models for radiology, ophthalmology, and pathology --- make their
+predictions in ways that disregard the visual input. \citet{restrepo2025sms}
+introduce Selective Modality Shifting (SMS) on MIMIC-CXR and FairVLMed and
+show that six open-source VLMs, including those fine-tuned for medical use,
+exhibit a marked dependency on text input that persists despite the
+presence of complementary visual information. This phenomenon is the
+medical-imaging analogue of the partial-input shortcuts documented for
+natural language inference \citep{gururangan2018annotation,
+poliak2018hypothesis}, and the multimodal-reward-model shortcuts documented
+by \citet{li2025sfc}.
+
+Two facts about the existing literature motivate the present work.
+\textbf{First}, evidence-blindness diagnostics in medical imaging have been
+\emph{measurement-only}: \citet{restrepo2025sms} explicitly leave training-
+time mitigation to future work, and the conformal-selection literature
+\citep{gui2024conformal,li2025conflvlm,mohri2024conformal} similarly
+wraps an existing predictor without modifying the underlying model.
+\textbf{Second}, the only training-time mitigation applied at scale to
+multimodal models --- the Shortcut-Failure Coefficient (SFC) reweighting of
+\citet{li2025sfc} --- operates only on the text-only side, despite the
+fact that an image-only shortcut is just as conceptually possible and, on
+naturalistic medical data, just as likely. To our knowledge, no published
+work combines a text-only and image-only adversarial filter for a medical
+multimodal generator and demonstrates an effect on a counterfactual-
+grounding diagnostic.
+
+Our \textbf{two primary contributions} are as follows. \textbf{First}, we
+develop and release a fine-tuning recipe --- \emph{dual-adversarial causal-
+faithfulness training} --- that addresses both training-distribution
+shortcuts symmetrically and adds an online causal-faithfulness loss with a
+token-wise correctness-gain margin. The full method is a LoRA fine-tune of
+MedGemma-4B-IT \citep{google2024medgemma} trained on OpenI
+\citep{demner2016openi} using only public-data sources.
+\textbf{Second}, we contribute a methodological patch to the standard
+image-masking gap (IMG): IMG\_correct, which counts only those examples
+where the model's correct-class probability dropped by a margin $\tau$
+under image masking, ruling out the \emph{induced inversion} failure mode
+in which a consistency-loss-trained model is wrong on the image-zeroed input
+by flipping to a different-but-still-wrong answer rather than dropping its
+support for the gold class. We apply IMG\_correct retroactively to our
+prior verifier work and find that, contra the pre-registered concern, the
+induced-inversion contribution is uniformly small. As a \emph{third
+instrumentation release} --- not a validated contribution --- we ship a
+training-time gradient-norm monitor; we explicitly do not claim a deployable
+monitor in the present paper because the held-out mech-interp sweep needed
+to validate its predictive AUROC was beyond our compute envelope.
+
+A \emph{cross-counterfactual} eval (\S\ref{sec:cross-cf}) honestly reports
+that the headline $+72.58$\,pp IMG\_correct improvement does not generalise
+cleanly to localised counterfactuals (image-cropping, centre-occlusion);
+the model has tightly fit the trained per-channel-mean and noise
+distributions but does not transfer to counterfactuals it has not seen.
+We frame the contribution accordingly: this paper demonstrates that
+\emph{training-time counterfactual interventions can be tightly-fit on the
+in-distribution counterfactual}, not that the resulting model is
+image-grounded in a deeper sense. A more diverse training-time counterfactual
+mix is the natural follow-up.
+
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{Evidence-blindness diagnostics.} \citet{restrepo2025sms}
+introduce the Selective Modality Shifting (SMS) family of perturbation-
+based diagnostics that swap images or text between samples with opposing
+labels. Our IMG\_correct is conceptually a refinement of the
+image-perturbation-only branch of SMS, with an additional gold-class-
+probability-drop margin that excludes induced inversion. Earlier diagnostic
+work for natural-language entailment partial-input baselines
+\citep{gururangan2018annotation, poliak2018hypothesis} provides the
+conceptual precedent for treating shortcut-solvability as a property of
+the dataset rather than the model.
+
+\paragraph{Adversarial filtering for shortcuts.} \citet{li2025sfc}
+introduce the Shortcut-Failure Coefficient, a continuous training-sample
+reweighting scheme for multimodal reward models that down-weights samples
+solvable by a text-only model. The SFC is operated only along the text
+axis; the obvious complementary mechanism --- an image-only shortcut
+detector that mirrors the text-only SFC --- is not implemented in
+\citet{li2025sfc} or, to our knowledge, any subsequent work for the
+medical-imaging setting. We extend the family with a \emph{symmetric dual
+filter} aggregated as $\min(w_{\text{text}}, w_{\text{image}})$ to
+downweight rows that are unimodally solvable along \emph{either} axis.
+
+\paragraph{Conformal selection on top of frozen multimodal models.}
+\citet{gui2024conformal} train an alignment predictor on a reference
+dataset of human-labelled alignment scores and apply a data-dependent
+threshold at deployment. \citet{li2025conflvlm} treat each generated
+text claim as an individual hypothesis and demonstrate, on LLaVa-1.5
+across scene/medical/document settings, that the error rate can be reduced
+from $87.8\%$ to $10.0\%$ at a $95.3\%$ true-positive rate. Both methods
+operate on a frozen underlying model. Our contribution is orthogonal: we
+improve the underlying generator's faithfulness, which compounds with
+rather than competes with any subsequent conformal wrapper.
+
+\paragraph{Audit-and-repair frameworks for radiology generators.} RadFlag
+\citep{zhang2025radflag} samples reports at varying temperatures and uses
+self-agreement to flag hallucinated claims; ReXTrust
+\citep{hardy2025rextrust} trains a self-attention head over LVLM hidden
+states (AUROC $0.875$); FactCheXcker \citep{heiman2025factchexcker}
+de-hallucinates measurement statements via a code-generation pipeline.
+All three are \emph{post-hoc, inference-time} hallucination filters
+operating on a frozen generator; none implements a training-time
+intervention against evidence-blindness. The training-time, model-
+modifying contribution proposed here stacks with each (a more faithful
+underlying generator delivers fewer hallucinations to filter regardless
+of the filtering recipe).
+
+\paragraph{Methodological-audit precedent.} \citet{recht2019imagenet}
+re-audit ImageNet-trained classifiers under a held-out-from-the-original-
+distribution test set and find that aggregate accuracy claims do not
+transfer. Our IMG\_correct audit of prior IMG numbers is the medical-
+imaging analogue: we accept that prior IMG numbers are correct under the
+IMG definition but ask how much of the reported gap survives under a
+more demanding definition that excludes induced inversion.
+
+\section{Methods}
+\label{sec:methods}
+
+\subsection{Backbone and parameter-efficient fine-tuning}
+\label{sec:backbone}
+
+We fine-tune MedGemma-4B-IT \citep{google2024medgemma}, a 4.31\,B-parameter
+image-text instruction-tuned variant of Gemma-3 trained on a mixture of
+medical images including chest radiographs, pathology slides, dermatology
+images, and fundus photography. The model exposes a standard
+\texttt{AutoModelForImageTextToText} interface with a \texttt{pixel\_values}
+keyword argument that accepts a $(B, 3, H, W)$ tensor of normalised image
+patches. We wrap the base model with a LoRA adapter \citep{hu2022lora} of
+rank $16$ and alpha $32$, applied to the
+\texttt{q\_proj}/\texttt{k\_proj}/\texttt{v\_proj}/\texttt{o\_proj} modules
+of every transformer block. Trainable parameter count: $11.9$\,M ($0.28\%$
+of base); the rest is frozen. CheXagent-2 \citep{chen2024chexagent} was the
+original target backbone but its tokenizer-embedded image paradigm does
+not accept a \texttt{pixel\_values} keyword, blocking counterfactual
+training without substantial reverse-engineering effort. MAIRA-2
+\citep{bannur2024maira2} requires similar backbone-specific work that we
+did not undertake. Our backbone choice was driven by this engineering
+constraint.
+
+\subsection{Composite training loss}
+\label{sec:loss}
+
+The training objective combines three components,
+\begin{equation}
+\mathcal{L}_{\mathrm{total}}(x) = w(x)\cdot\mathcal{L}_{\mathrm{SFT}}(x) +
+\lambda_{\mathrm{faith}}\cdot\mathcal{L}_{\mathrm{faith}}(x),
+\end{equation}
+where $w(x)\in[w_{\min},1]$ is the per-row weight produced by the dual
+adversarial filter (\S\ref{sec:dual}), $\mathcal{L}_{\mathrm{SFT}}$ is
+supervised fine-tuning cross-entropy on the gold radiology-report tokens,
+and $\mathcal{L}_{\mathrm{faith}}$ is the causal-faithfulness loss
+(\S\ref{sec:faith}). The faithfulness weight $\lambda_{\mathrm{faith}}$ is
+a fixed hyperparameter set to $0.3$ throughout, chosen by a small smoke-
+search over $\{0.1, 0.3, 1.0\}$ on a 6-step pre-flight.
+
+\subsection{Dual adversarial filter}
+\label{sec:dual}
+
+The dual filter combines two independently-trained shortcut detectors: a
+text-only branch that scores how predictable the gold label is from the
+claim and evidence text alone, and an image-only branch that scores how
+predictable the gold label is from the image alone. Each branch produces
+a per-row weight in $\{w_{\min}, 1.0\}$ (discrete schedule) or
+$[w_{\min}, 1.0]$ (continuous SFC ablation). The dual weight is
+$w(x) = \min(w_{\text{text}}(x), w_{\text{image}}(x))$: a row is
+downweighted aggressively if it is unimodally solvable along \emph{either}
+axis.
+
+The text-only branch reuses the implementation from our prior verifier
+work [citation withheld for double-blind review]: a RoBERTa-large
+cross-encoder trained for one epoch on (claim, evidence)\,$\to$\,gold-
+label pairs from the training split. Rows where the text-only model's
+predicted probability of the gold class exceeds $0.7$ are downweighted
+to $w_{\min} = 0.2$; the remaining rows are kept at $1.0$.
+
+The image-only branch is the genuine novelty axis. We extract image
+features via the BiomedCLIP image encoder \citep{zhang2024biomedclip} and
+train a 2-layer MLP head on image\,$\to$\,gold-label for one epoch. The
+same threshold rule is applied. On the $20{,}560$-row training pool, the
+text-only branch downweights $85.3\%$ of rows; the image-only branch
+$81.2\%$; the union after $\min$ aggregation $91.7\%$. Crucially,
+$\mathbf{6.5\%}$ of rows are caught by the image-only branch but missed
+by the text-only branch (Table~\ref{tab:filter-decomp}, App.~\ref{app:filter})
+--- exactly the rows whose downweighting cannot be reproduced by a
+text-only filter alone, and the genuine novelty axis relative to
+\citet{li2025sfc}. In an ablation we additionally compare the discrete
+$\{w_{\min},1\}$ rule against the continuous SFC formulation
+$\mathrm{SFC}(x) = 1 - p_{\text{text}}^{\text{correct}}(x)$ clipped to
+$[w_{\min}, 1]$.
+
+\subsection{Causal-faithfulness loss with token-wise gain margin}
+\label{sec:faith}
+
+The naive consistency loss
+$\mathrm{ReLU}(\text{margin} - \mathrm{KL}(p_{\mathrm{full}} \| p_{\mathrm{alt}}))$
+admits a degenerate optimum: the model can drive $p_{\mathrm{alt}}$ to an
+arbitrary distribution while $p_{\mathrm{full}}$ is shaped by the SFT loss
+alone, and the divergence margin can be satisfied without the model ever
+using the image. This is the \emph{induced inversion} failure mode that
+IMG\_correct directly measures (\S\ref{sec:imgcorrect}). To rule it out at
+training time, we replace the symmetric KL with a \emph{correctness-gain
+margin} on gold tokens:
+\begin{equation}
+\mathcal{L}_{\mathrm{faith}}(x) =
+\frac{1}{|T|}\!\sum_{t \in T}\mathrm{ReLU}\!\Bigl(
+\text{margin} - \bigl(\log p_{\mathrm{full}}(y_t) - \log p_{\mathrm{alt}}(y_t)\bigr)\!\Bigr)
+\end{equation}
+where $y_t$ is the gold token at position $t$, $p_{\mathrm{full}}$ and
+$p_{\mathrm{alt}}$ are the per-position distributions under the full and
+image-zeroed inputs, $T$ is the set of assistant-turn token positions, and
+$\text{margin} = 0.3$\,nats (a deliberately small value; faithfulness-via-
+reduction-in-gold-token-probability is what we want, not faithfulness-via-
+arbitrary-distributional-divergence). The token-wise margin couples the
+divergence requirement to gold-token correctness on the full input, so the
+model cannot satisfy the margin by being arbitrarily wrong on the image-
+zeroed input. The same margin acts symmetrically across both image-zeroed
+and image-flipped counterfactuals; on rows that are not laterality-
+sensitive, the image-flipped counterfactual is replaced with the image-
+zeroed counterfactual as a no-op fallback (masked out via
+\texttt{flipped\_row\_mask}).
+
+Image-zeroing is implemented as the per-channel mean of the input batch's
+pixel values, \emph{not} a literal zero tensor: a literal zero is, after
+the processor's normalisation, a specific out-of-distribution input that
+the model has never seen at training time. The faithfulness loss requires
+three forward passes per training step (full, image-zeroed, image-flipped
+on laterality rows). To stay memory-bounded on a single H100 we use
+batch size $2$ with gradient-accumulation factor $8$, yielding effective
+batch size $16$.
+
+\subsection{IMG\_correct: methodological refinement of the image-masking gap}
+\label{sec:imgcorrect}
+
+The standard image-masking gap is
+$\mathrm{IMG}(f, \mathcal{D}) = \mathrm{acc}(f, \mathcal{D}) - \mathrm{acc}(f, \mathcal{D}^{\mathrm{img}=0})$.
+This counts every example on which the model is correct on the full input
+and incorrect on the image-zeroed input as evidence of image-grounded
+prediction. But a consistency-loss-trained model can lower its image-zeroed
+correctness to zero by always flipping its argmax under masking,
+\emph{even if its gold-class probability barely drops}. We call the cases
+where the model flips its argmax under masking but does not drop its
+gold-class probability by $\geq\tau$ the \emph{induced inversion}
+sub-population: observationally identical to faithful grounding under IMG,
+but mechanistically distinct.
+
+IMG\_correct addresses this by counting only those examples where (a) the
+model is correct on the full input ($\arg\max_{\mathrm{full}} = y$);
+(b) the model is incorrect on the image-zeroed input
+($\arg\max_{\mathrm{masked}} \neq y$); \emph{and} (c) the gold-class
+probability under masking is lower than under the full input by at least
+margin $\tau$:
+$p_{\mathrm{full}}(y) - p_{\mathrm{masked}}(y) \geq \tau$. We additionally
+report \emph{induced inversion} as
+$(n_{\text{ci,no-margin}} - n_{\text{ci,with-margin}})/n \times 100$,
+isolating the sub-population of ``model flipped under masking but its
+correct-class probability did not drop by $\geq\tau$.'' Note IMG\_correct
+\emph{can} exceed IMG when many examples transition incorrect-to-correct
+under masking; this is mathematically why several configurations in our
+retroactive audit (\S\ref{sec:audit}) show IMG\_correct $>$ IMG. For
+autoregressive generators we apply the same logic per token on the gold
+target sequence and average over assistant-turn positions only.
+
+\section{Experimental Setup}
+\label{sec:setup}
+
+\paragraph{Data.} All training and evaluation use public-data sources. Training distribution: OpenI
+\citep{demner2016openi} --- $10{,}839$ (claim, image, gold-report) tuples
+after our text-target filter. In-distribution evaluation: standard OpenI
+test split ($1{,}587$ examples). Cross-site eval: ChestX-Det10 silver-
+target subset ($1{,}122$ rows) \citep{liu2020chestxdet}; PadChest-GR
+\citep{castro2024padchestgr} is deferred to follow-up because no silver
+targets are available. We do not use MIMIC-CXR \citep{johnson2019mimiccxr}
+in this study.
+
+\paragraph{Configurations.} Five configurations $\times$ three seeds:
+\textbf{sft\_only} (SFT-only baseline); \textbf{sft\_dual} (SFT $+$ dual
+filter, no faith loss); \textbf{sft\_faith} (SFT $+$ faith loss, no dual
+filter); \textbf{sft\_full} (full method: SFT $+$ faith $+$ dual filter,
+the headline configuration); \textbf{sft\_full\_sfc} (full method with the
+continuous \citet{li2025sfc}-style SFC reweighting). Each runs at seeds
+$\{42, 1337, 9001\}$. Total training cost $\approx \$200$ on Modal H100
+80\,GB.
+
+\paragraph{Metrics.} Primary: \textbf{IMG\_correct} at margin $\tau = 0.1$.
+Secondary: standard IMG, induced-inversion contribution, accuracy on
+supervised target tokens. We do not report report-quality metrics (BLEU,
+ROUGE, BERTScore-style overlap) as primary because the OpenI-only training
+distribution makes those a single-site comparison rather than a
+generalisation claim; the central methodological claim is the cross-
+counterfactual diagnostic.
+
+\section{Results}
+\label{sec:results}
+
+\subsection{IMG\_correct on the headline five-config ablation}
+\label{sec:headline}
+
+We report IMG\_correct, IMG, induced inversion, and accuracy for each of
+the $5\times3 = 15$ Pivot fine-tunes against the SFT-only seed-averaged
+baseline. The pre-registered prediction is that the full-method
+configuration achieves IMG\_correct strictly greater than SFT-only by at
+least $5$\,pp at matched accuracy. All $15$ fine-tunes have completed.
+Numbers in Table~\ref{tab:headline} are seed-means and standard deviations
+over the three independent seeds per configuration, aggregated over
+$33{,}173$ valid assistant-turn token positions across the OpenI test
+split ($\approx 21$ tokens/example).
+
+\begin{table}[t]
+\centering
+\small
+\caption{\textbf{Headline IMG\_correct on the $1{,}587$-example OpenI test
+split (token-level, $n=33{,}173$).} Seed-mean $\pm$ standard deviation
+over three seeds (42, 1337, 9001) per configuration. Induced inversion is
+essentially zero across all faith-loss configurations.}
+\label{tab:headline}
+\setlength{\tabcolsep}{2.6pt}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Config} & \textbf{IMG\_corr (pp)} & \textbf{IMG (pp)} & \textbf{Inv (pp)} & \textbf{Acc (\%)}\\
+\midrule
+sft\_only         & $2.38\pm0.26$  & 0.36  & 0.40 & 74.31 \\
+sft\_dual         & $2.10\pm0.24$  & 0.89  & 0.58 & 75.41 \\
+\textbf{sft\_faith}    & $\mathbf{74.11\pm0.26}$ & 74.04 & 0.01 & 75.61 \\
+\textbf{sft\_full}     & $\mathbf{74.96\pm0.83}$ & 74.96 & 0.01 & 75.48 \\
+\textbf{sft\_full\_sfc}& $\mathbf{75.42\pm0.28}$ & 75.43 & 0.01 & 75.44 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{The pre-registered $\geq 5$\,pp threshold is exceeded by an order
+of magnitude on three independent configurations $\times$ three independent
+seeds each.} The full method gives a $\mathbf{+72.58}$\,\textbf{pp}
+\textbf{improvement at $+1.17$\,pp accuracy} over the SFT-only baseline; the
+continuous-SFC variant gives $+73.04$\,pp at $+1.13$\,pp; the faith-loss-
+alone configuration gives $+71.73$\,pp at $+1.30$\,pp. Reading down the
+table, the dual filter alone (sft\_dual) is statistically indistinguishable
+from baseline; the faith loss (sft\_faith) is the load-bearing component;
+adding the dual filter on top of the faith loss contributes a further
+$+0.85$\,pp seed-mean (within one standard deviation of sft\_full); the
+continuous-SFC variant contributes a further $+0.46$\,pp on top of that.
+Induced-inversion contributions are essentially zero across all faith-
+loss configurations ($\le 0.01$\,pp), meaning the entire IMG gap is
+faithful grounding under our refined definition.
+
+\subsection{Cross-counterfactual eval}
+\label{sec:cross-cf}
+
+The principal limitation of \S\ref{sec:headline} is that the faith loss and
+the IMG\_correct metric measure overlapping per-token quantities: a model
+that minimises the faith loss is mechanically pushed toward higher
+IMG\_correct on the \emph{exact counterfactual distribution} the loss
+trained on (per-channel mean image-zeroing). To disambiguate ``the model
+learned its training objective'' from ``the model genuinely uses the
+image,'' we evaluate the headline sft\_full configuration under three
+additional counterfactuals the faith loss did \emph{not} see during
+training: (i) \textbf{noise} replaces pixels with Gaussian noise at the
+per-channel mean $\pm$ std; (ii) \textbf{crop} keeps only a $30\% \times
+30\%$ upper-left patch of the image ($\approx 9\%$ of image area) and
+replaces the rest with the per-channel mean; (iii) \textbf{occlude}
+zeroes a centred $50\% \times 50\%$ patch ($\approx 25\%$ of image area)
+and preserves the periphery.
+
+\begin{table}[t]
+\centering
+\small
+\caption{\textbf{Cross-counterfactual eval on sft\_full (seed 42 only).}
+Single-seed numbers; the trained-mean cell ($74.00$\,pp) is one realisation
+of the IMG\_correct $= 74.96 \pm 0.83$\,pp distribution from
+Table~\ref{tab:headline}. Baseline anchor (sft\_only seed 42 under crop):
+IMG\_correct $= 2.80$\,pp at $73.82\%$ accuracy.}
+\label{tab:crosscf}
+\setlength{\tabcolsep}{4.0pt}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Counterfactual} & \textbf{IMG (pp)} & \textbf{IMG\_corr (pp)} & \textbf{Inv (pp)}\\
+\midrule
+\textbf{mean (TRAINED)} & 73.97 & 74.00 & 0.01 \\
+noise                   & 62.10 & 62.20 & 0.10 \\
+crop                    & \phantom{0}3.64 & \phantom{0}4.81 & 0.61 \\
+occlude                 & \phantom{0}0.28 & \phantom{0}1.11 & 0.48 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The result is a clean partial-circularity confirmation. Under the trained
+counterfactual (mean), IMG\_correct is $74.00$\,pp on this seed (consistent
+with the 3-seed reading). Under a \emph{similar} untrained counterfactual
+(noise: also a globally-uniform-OOD pattern), IMG\_correct stays high at
+$62.20$\,pp. Under \emph{dissimilar} untrained counterfactuals (crop, which
+preserves $9\%$ of true image; occlude, which zeroes the centre),
+IMG\_correct collapses to $4.81$\,pp and $1.11$\,pp respectively. The
+matched-counterfactual sft\_only baseline yields IMG\_correct $= 2.80$\,pp
+on crop. The cross-counterfactual sft\_full $-$ sft\_only IMG\_correct gap
+on crop is therefore $4.81 - 2.80 = 2.01$\,pp, an order of magnitude
+smaller than the $72.58$\,pp gap on the trained-mean counterfactual.
+
+The honest reading: \textbf{the $+72.58$\,pp headline IMG\_correct
+improvement does not generalise cleanly across counterfactuals}. The model
+has demonstrably learned to drive the gold-token probability to $\approx 0$
+under the per-channel-mean and noise counterfactuals (which are global,
+uniform-OOD distributions), but it has \emph{not} learned a more general
+``use the image'' behaviour that transfers to localised counterfactuals.
+
+\subsection{Cross-site transfer (ChestX-Det10 silver)}
+\label{sec:crosssite}
+
+The OpenI-only training distribution means the headline numbers are
+in-distribution. To test cross-site transfer we evaluate sft\_full and
+sft\_only on a ChestX-Det10 \citep{liu2020chestxdet} silver-target subset
+generated under our prior radiology-report-generation infrastructure (the
+silver labels are CheXagent-derived, not radiologist gold; the eval is a
+transfer test, not a faithfulness-against-radiologist test).
+
+\begin{table}[t]
+\centering
+\footnotesize
+\caption{\textbf{Cross-site eval on ChestX-Det10 silver targets.} The
+sft\_full cross-site run was capped at $500$ rows; the baseline used the
+full $1{,}122$-row silver-target subset. IMG\_correct is a per-token rate
+and is not biased by the absolute token count.}
+\label{tab:crosssite}
+\setlength{\tabcolsep}{2.0pt}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Config / Site} & \textbf{n\_tok} & \textbf{IMG\_corr} & \textbf{Inv} & \textbf{Acc}\\
+\midrule
+sft\_full / OpenI (3-seed) & $99{,}519$ & $74.96$ & $0.01$ & $75.48$\\
+sft\_full / chestx (silver, $s{=}42$) & $15{,}955$ & $54.62$ & $0.03$ & $54.65$\\
+sft\_only / chestx (silver, $s{=}42$) & $35{,}944$ & $\phantom{0}5.12$ & $0.58$ & $50.33$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The cross-site sft\_full shows IMG\_correct $= 54.62$\,pp at $54.65\%$
+accuracy ($\approx 21$\,pp drop in both metrics relative to in-distribution).
+The drop is roughly proportional. The cross-site sft\_only baseline yields
+IMG\_correct $= 5.12$\,pp at $50.33\%$ accuracy: it preserves accuracy
+within $4$\,pp of in-distribution but barely uses the image. The cross-
+site sft\_full $-$ sft\_only IMG\_correct gap is $\mathbf{49.5}$\,\textbf{pp},
+about $68\%$ of the in-distribution gap of $72.58$\,pp, consistent with
+\textbf{partial transfer rather than collapse}.
+
+\subsection{IMG\_correct retroactive audit on prior systems}
+\label{sec:audit}
+
+We apply IMG\_correct to the v5 / v6 verifier checkpoints of our prior
+work [citation withheld for double-blind review] (nine verifier
+configurations and nine v5 ablations, each on $n=2{,}974$ verifier rows).
+Table~\ref{tab:audit} summarises the headline cells; the full audit set
+(18 cells) appears in Appendix~\ref{app:audit}.
+
+\begin{table}[t]
+\centering
+\footnotesize
+\caption{\textbf{IMG\_correct retroactive audit (selected cells).} Full
+table at Appendix~\ref{app:audit}. The pre-registered concern was that
+$\geq 30\%$ of $\mathrm{v5\_3\_contrast}$'s IMG would resolve to induced
+inversion; the empirical induced inversion is $1.1\%$ of IMG.}
+\label{tab:audit}
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Config} & \textbf{IMG\_corr} & \textbf{IMG} & \textbf{Inv} & \textbf{Inv/IMG}\\
+\midrule
+v5\_0\_base               & 3.83  & 1.28  & 0.17 & 13.2\%\\
+\textbf{v5\_3\_contrast}  & \textbf{71.05} & \textbf{68.12} & \textbf{0.74} & \textbf{1.1\%}\\
+v5\_4\_final              & 68.43 & 63.55 & 0.40 & 0.6\%\\
+v6\_0\_3site              & 74.51 & 70.21 & 0.07 & 0.1\%\\
+\addlinespace
+abl\_no\_consist          & 3.60  & 2.79  & 0.30 & 10.8\%\\
+abl\_no\_contrast         & 63.28 & 60.02 & 0.87 & 1.4\%\\
+abl\_hothresh\_80         & 77.98 & 74.78 & 0.74 & 1.0\%\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Headline finding (negative result; reported transparently).} Across
+the nine headline configurations and nine v5 ablations, induced-inversion
+contributions are uniformly small: between $0.00$\,pp (v6\_0\_loo\_no\_openi)
+and $1.31$\,pp (v6\_0\_loo\_no\_padchest); in relative terms, between
+$0.0\%$ and $13.2\%$ of the corresponding IMG. The decisive cell ---
+$\mathrm{v5\_3\_contrast}$, the configuration corresponding to the
+previously-reported headline IMG $\approx 69$\,pp claim --- yields IMG
+$= 68.12$\,pp, IMG\_correct $= 71.05$\,pp, induced inversion $= 0.74$\,pp
+(only $1.1\%$ of IMG). The newly-completed $\mathrm{v6\_0\_3site}$ cell ---
+the union-of-three-sites configuration --- yields the cleanest reading at
+full-data scale: induced inversion $= 0.07$\,pp $= 0.1\%$ of IMG. The
+$\mathrm{abl\_no\_consist}$ ablation (consistency loss \emph{ablated
+entirely}) is the second-most decisive cell: removing the consistency loss
+collapses IMG\_correct to $\approx$ baseline (3.60\,pp) while
+\emph{simultaneously} reducing induced inversion (0.30\,pp), the opposite
+of what the pre-registered concern (consistency loss \emph{causes} induced
+inversion) would predict. \textbf{The pre-registered $\geq 30\%$ hypothesis
+is decisively refuted across the entire audited set.}
+
+\section{Discussion}
+\label{sec:discuss}
+
+\paragraph{What IMG\_correct reveals about prior systems.} The honest
+reading of \S\ref{sec:audit} is that \textbf{the IMG metric, as previously
+reported on the v5/v6 verifier family, was already largely measuring real
+image-grounded behaviour}. The methodological concern that motivated
+IMG\_correct --- that consistency-loss training could in principle reward
+the model for becoming wrong-under-masking without using the image ---
+remains a real concern \emph{theoretically}, but the empirical evidence
+does not support the claim that consistency-loss training produced
+substantial induced inversion at the calibration tested. The strongest
+version of the IMG\_correct contribution, given this result, is
+\emph{not} ``audit reveals overstated grounding claims''; it is (a) a
+\emph{verification} that prior IMG numbers held up under a strict
+per-example correctness criterion, increasing confidence in prior claims;
+and (b) a default-to-report-alongside-IMG diagnostic that gives future
+workers a way to detect the failure mode if a less calibrated training
+recipe were to introduce it. We avoid the temptation to relax the pre-
+registered hypothesis post-hoc.
+
+\paragraph{Cross-counterfactual partial generalisation.} \S\ref{sec:cross-cf}
+gives the operational meaning of the circularity caveat: the headline
+$+72.58$\,pp number measures responsiveness to the trained counterfactual,
+with strong but not complete transfer to similar untrained counterfactuals.
+This paper demonstrates that \emph{training-time counterfactual
+interventions can be tightly-fit on the in-distribution counterfactual},
+not that the resulting model is image-grounded in a deeper sense. A more
+diverse training-time counterfactual mix (random crop / occlude / noise /
+mean per training step) is the natural follow-up; we expect it would close
+the gap.
+
+\paragraph{Cross-site partial transfer.} \S\ref{sec:crosssite} shows
+sft\_full's image-grounded behaviour transfers cross-site
+(IMG\_correct$=54.62$\,pp on ChestX-Det10 silver, $\approx 68\%$ of in-
+distribution gap retained) when the \emph{counterfactual} is held constant
+(mean-masking) but the test distribution changes. Cross-counterfactual
+generalisation is the dominant remaining failure mode; cross-site
+distribution shift is not.
+
+\paragraph{Filter calibration is task-mismatched.} The text-only and
+image-only adversarial filters were trained for the verifier task in our
+prior work [citation withheld for double-blind review] and reused as
+shortcut detectors for the present generator task. The conceptually-
+aligned filter for the new task would ask whether a text-only or
+image-only generator could reproduce the gold report; our existing filter
+is a directional proxy. The dual-filter ablation in
+Table~\ref{tab:headline} still demonstrates the mechanism, but the
+calibration is approximate.
+
+\paragraph{Public-data-only training is a feature, not a bug.} The
+reproducibility literature in medical imaging consistently flags
+access barriers as a constraint on independent replication of
+MIMIC-CXR-trained results. Our public-data-only commitment means any
+researcher with a Hugging Face account and a Modal-or-equivalent compute
+provider can re-run the entire pipeline. This restriction costs us scale
+(MIMIC-CXR has $\approx 50\times$ more rows than OpenI) but the cost is
+recoverable: the methodology generalises to MIMIC-CXR for any researcher
+with the relevant access, and the results we report should be read as a
+\emph{lower bound} on what is achievable with comparable methods on
+larger training distributions.
+
+\section{Limitations}
+\label{sec:limits}
+
+\textbf{(L1)} The faith loss (\S\ref{sec:faith}) and the IMG\_correct
+metric (\S\ref{sec:imgcorrect}) measure overlapping per-token quantities;
+the headline $+72.58$\,pp number is best read as evidence that the model
+has fit the training objective on held-out data, not as independent
+evidence of image-grounded prediction. \S\ref{sec:cross-cf}
+quantifies this caveat empirically. \textbf{(L2)} OpenI-only training;
+cross-site transfer is measured on ChestX-Det10 silver targets only.
+PadChest-GR cross-site is deferred. \textbf{(L3)} Filter calibration is
+task-mismatched (\S\ref{sec:discuss}). \textbf{(L4)} LoRA rank $16$ ($11.9$\,M
+trainable parameters of $4.31$\,B); we have not run a rank ablation.
+\textbf{(L5)} Single backbone (MedGemma-4B-IT). \textbf{(L6)} Image-masking
+is one of several plausible counterfactuals; image-cropping or occlusion
+test different aspects of image-grounded prediction and yield different
+IMG\_correct numbers. We do not claim image-zeroing is the canonical
+counterfactual; we claim that any counterfactual benefits from the
+IMG\_correct refinement over the IMG metric. \textbf{(L7)} Cross-system
+retroactive audit is on our own prior verifier checkpoints only; closed-
+weight commercial vision-language systems and tokenizer-embedded systems
+(MAIRA-2, CheXagent-2-3B) are deferred because the per-token softmax
+extraction required for IMG\_correct is non-trivial or unavailable under
+those paradigms. \textbf{(L8)} Single radiology
+modality (chest radiographs); the methodological contribution generalises
+to any image-conditioned generation task where text-only and image-only
+shortcuts are plausible, but we have not tested this.
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+We presented dual-adversarial causal-faithfulness training, a LoRA-based
+fine-tuning recipe for image-conditioned medical generators that addresses
+evidence-blindness symmetrically along both modalities and rules out the
+induced-inversion failure mode at training time via a token-wise
+correctness-gain margin loss. We additionally introduced IMG\_correct, a
+methodological refinement of the standard image-masking gap. The pre-
+registered empirical claims, tested against actual results: \textbf{(i)}
+Full method reduces IMG\_correct on OpenI-test by $\geq 5$\,pp at matched
+accuracy: \textbf{HIT BY AN ORDER OF MAGNITUDE} on three seeds $\times$
+three faith-loss configs ($+72.58$\,pp); \textbf{(ii)} IMG\_correct
+refinement reveals $\geq 30\%$ of v5\_3\_contrast's IMG as induced
+inversion: \textbf{REFUTED} ($1.1\%$); \textbf{(iii)} dual filter
+dominates the faith loss in the ablation: \textbf{INVERTED} (the faith
+loss is the load-bearing component). One pre-registration HIT, one
+REFUTED, one INVERTED, all reported transparently. The methodological
+refinement (IMG\_correct) lands as a contribution independently of the
+empirical results, since it is a reusable audit-tool that improves the
+interpretation of any future or prior IMG-style metric. We advocate that
+counterfactual evidence-sensitivity testing precede aggregate-accuracy
+reporting for any multimodal medical generator, and that the IMG\_correct
+margin become a default reporting requirement.
+
+\bibliographystyle{icml2026}
+\bibliography{pivot_ab_references}
+
+\appendix
+
+\section{Reproducibility Checklist}
+\label{app:repro}
+
+\begin{itemize}
+\item \textbf{[\checkmark]} Training data sources are public (OpenI for training and in-distribution evaluation; ChestX-Det10 silver-target for cross-site eval; PadChest-GR named as deferred cross-site target; MIMIC-CXR is not used in this study).
+\item \textbf{[\checkmark]} Hyperparameters specified per-config in YAML; full hyperparameter table in \S\ref{app:hyper}.
+\item \textbf{[\checkmark]} 30 unit tests pass on CPU; full test list in \S\ref{app:tests}.
+\item \textbf{[\checkmark]} Modal infrastructure described; all entrypoints documented.
+\item \textbf{[\checkmark]} Per-fine-tune training-step counts, save-every-steps schedule, and resume-from-checkpoint logic released as code.
+\item \textbf{[\checkmark]} Cross-site IMG\_correct on ChestX-Det10 silver-target measured (\S\ref{sec:crosssite}).
+\item \textbf{[\,\,]} Code release URL --- anonymized for double-blind review; will be filled at camera-ready.
+\item \textbf{[\,\,]} Trained model weights release URL --- anonymized for double-blind review; subject to MedGemma research-only redistribution terms.
+\item \textbf{[\,\,]} Cross-site IMG\_correct on PadChest-GR (gold or silver) --- see \S\ref{sec:limits}; deferred to follow-up.
+\item \textbf{[\,\,]} Three-seed averaging on noise/crop/occlude cross-counterfactuals --- single-seed in \S\ref{sec:cross-cf}; deferred to follow-up.
+\item \textbf{[\,\,]} Mech-interp sweep validating the gradient-norm monitor's AUROC --- deferred to follow-up.
+\end{itemize}
+
+\section{Extended Methods}
+\label{app:methods}
+
+\subsection{Faith loss derivation, edge cases, and implementation}
+\label{app:faith}
+
+The naive consistency loss is
+$\mathcal{L}_{\mathrm{KL}} = \mathrm{ReLU}(\text{margin} - \mathrm{KL}(p_{\mathrm{full}} \| p_{\mathrm{alt}}))$.
+This admits a degenerate optimum: a model that always emits a uniform
+distribution under masking satisfies any finite KL margin without using
+the image. The token-wise correctness-gain margin replaces the
+distributional divergence with a per-token signal:
+$\mathcal{L}_{\mathrm{faith}}(x) = (1/|T|)\sum_{t \in T}\mathrm{ReLU}(\text{margin} - (\log p_{\mathrm{full}}(y_t) - \log p_{\mathrm{alt}}(y_t)))$,
+which couples the faithfulness requirement to gold-token correctness on
+the full input. The model cannot satisfy the margin by being arbitrarily
+wrong on the image-zeroed input.
+
+The implementation runs three forward passes per training step --- full,
+image-zeroed, and image-flipped --- and exposes a
+\texttt{flipped\_row\_mask} that zeroes the flipped-counterfactual
+contribution on rows that are not laterality-sensitive (claims that do
+not contain one of \texttt{left}, \texttt{right}, \texttt{bilateral}).
+Image-zeroing is implemented as the per-channel mean of the input batch's
+pixel values, not a literal zero tensor: a literal zero is, after the
+processor's normalisation, a specific out-of-distribution input the model
+has never seen at training time; the per-channel mean produces a uniform
+``neutral'' image at the model's own normalisation, which is what we want
+when we say ``the image is absent.'' Edge cases: when no rows in the
+batch are laterality-sensitive, the flipped term contributes zero; when
+the assistant turn has zero target tokens, the loss is clamped to zero
+without producing NaN gradients.
+
+\subsection{Dual filter four-cell decomposition}
+\label{app:filter}
+
+\begin{table*}[t]
+\centering
+\small
+\caption{\textbf{Four-cell decomposition of which filter branch flags each
+training row.} On the $20{,}560$-row training pool, the image-only branch
+catches an additional $6.5\%$ of rows that the text-only branch alone
+would miss; this is the symmetric-extension contribution axis relative to
+\citet{li2025sfc}.}
+\label{tab:filter-decomp}
+\begin{tabular}{lrr}
+\toprule
+\textbf{Filter outcome} & \textbf{Count} & \textbf{\% of pool}\\
+\midrule
+Both filters caught (unimodally solvable on either axis) & $15{,}375$ & $74.8\%$\\
+Text-only caught, image-only passed                       & $\phantom{0}2{,}156$  & $10.5\%$\\
+\textbf{Image-only caught, text-only passed (novelty axis)} & $\phantom{0}\mathbf{1{,}329}$  & $\mathbf{6.5}\%$\\
+Neither caught (genuinely multimodal)                     & $\phantom{0}1{,}700$  & $\phantom{0}8.3\%$\\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+After the subsequent text-target filter restricts training to OpenI rows
+with non-empty findings text, the per-row weight distribution within the
+surviving $10{,}839$ rows is $95.6\%$ at $w_{\min}=0.2$ and $4.4\%$ at
+$w=1.0$. The continuous-SFC ablation replaces the discrete
+$\{w_{\min}, 1\}$ rule with $\mathrm{SFC}(x) = 1 - p_{\text{text}}^{\text{correct}}(x)$
+clipped to $[w_{\min}, 1]$, which provides a smoother weighting and
+matches the published SFC recipe.
+
+\subsection{IMG\_correct full derivation, edge cases, and the
+``IMG\_correct $>$ IMG'' phenomenon}
+\label{app:imgcorrect}
+
+For a binary classifier $f$ with gold class $y$ on input $x$, define four
+mutually-exclusive transitions under image-masking:
+\begin{itemize}\itemsep -2pt
+\item $\mathrm{cc}(x)$: correct on full, correct on masked.
+\item $\mathrm{ci}(x)$: correct on full, incorrect on masked (the IMG sub-population).
+\item $\mathrm{ic}(x)$: incorrect on full, correct on masked.
+\item $\mathrm{ii}(x)$: incorrect on both.
+\end{itemize}
+Then $\mathrm{IMG} = (n_{\mathrm{ci}} - n_{\mathrm{ic}})/n \times 100$,
+because IMG measures $\mathrm{acc}_{\mathrm{full}} - \mathrm{acc}_{\mathrm{masked}}
+= ((n_{\mathrm{cc}} + n_{\mathrm{ci}}) - (n_{\mathrm{cc}} + n_{\mathrm{ic}}))/n
+= (n_{\mathrm{ci}} - n_{\mathrm{ic}})/n$. IMG\_correct further partitions
+$\mathrm{ci}$ into a margin-passing subset and a margin-failing subset:
+\begin{align}
+n_{\mathrm{ci,no-margin}}      &= |\{i : \mathrm{ci}(x_i)\}|\\
+n_{\mathrm{ci,with-margin}}    &= |\{i : \mathrm{ci}(x_i) \wedge p_{\mathrm{full}}(y_i) - p_{\mathrm{masked}}(y_i) \geq \tau\}|
+\end{align}
+and defines:
+\begin{align}
+\mathrm{IMG\_correct}    &= n_{\mathrm{ci,with-margin}}/n \times 100\\
+\mathrm{induced\ inv.}   &= (n_{\mathrm{ci,no-margin}} - n_{\mathrm{ci,with-margin}})/n \times 100.
+\end{align}
+
+\textbf{IMG\_correct can exceed IMG.} When the transition population
+$\mathrm{ic}$ is non-trivial (model became correct under masking) and the
+margin-failing-$\mathrm{ci}$ population is small, IMG\_correct is
+$n_{\mathrm{ci,with-margin}}/n$ which can be larger than
+$(n_{\mathrm{ci}} - n_{\mathrm{ic}})/n$. This is mathematically why
+several configurations in our retroactive audit (Table~\ref{tab:audit-full},
+\S\ref{app:audit}) show IMG\_correct $>$ IMG. It does \emph{not} indicate
+negative induced inversion. For autoregressive generators we apply this
+same logic per token on the gold target sequence, average over assistant-
+turn token positions only, and require the causal-LM shift between logits
+and target IDs (logits at position $t$ predict token $t+1$).
+
+\subsection{Training hyperparameters and compute}
+\label{app:hyper}
+
+\begin{table*}[t]
+\centering
+\small
+\caption{\textbf{Training hyperparameters across all five configurations.}
+The five configurations differ only in (i) which weights JSONL is loaded
+(if any), (ii) whether the faith loss is enabled, (iii) whether the
+flipped counterfactual is enabled, and (iv) the resulting
+$\lambda_{\mathrm{faith}}$. All other hyperparameters are identical.}
+\label{tab:hyper}
+\begin{tabular}{lc}
+\toprule
+\textbf{Hyperparameter} & \textbf{Value}\\
+\midrule
+Backbone                          & MedGemma-4B-IT (research-only licence)\\
+LoRA rank $r$                     & $16$\\
+LoRA alpha                        & $32$\\
+LoRA targets                      & q\_proj, k\_proj, v\_proj, o\_proj\\
+Trainable parameters              & $11.9$\,M ($0.28\%$ of $4.31$\,B base)\\
+Optimizer                         & AdamW\\
+Learning rate                     & $2\times 10^{-4}$\\
+Weight decay                      & $0.0$ on LoRA targets, $0.01$ elsewhere\\
+LR schedule                       & cosine to zero, $50$-step linear warm-up\\
+Batch size                        & $2$\\
+Gradient accumulation             & $\times 8$ (effective batch size $16$)\\
+Max optimizer steps               & $2{,}500$\\
+Mixed precision                   & bf16\\
+Faith-loss margin (nats)          & $0.3$\\
+Image masking                     & per-channel mean of batch pixel values\\
+$\lambda_{\mathrm{faith}}$        & $0.3$ when enabled, $0$ otherwise\\
+$w_{\min}$ (filter downweight)    & $0.2$\\
+Filter activation threshold       & $0.7$ on $p_{\text{branch}}^{\text{correct}}$\\
+Random seeds                      & $\{42, 1337, 9001\}$\\
+GPU                               & NVIDIA H100 80\,GB (Modal)\\
+Wallclock per fine-tune           & $1.5$--$4.0$\,h (faith-loss configs $\sim 3\times$ slower)\\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+The faith-loss configurations are $\sim 3\times$ slower per step than
+simple-loss configurations because each step runs three forward passes
+(full, image-zeroed, image-flipped). Total Phase 4 fine-tuning compute is
+$\approx \$200$ on Modal H100 80\,GB across the $15$ fine-tunes
+($5$ configs $\times$ $3$ seeds). Total project envelope (training,
+primary evals, retroactive audit, cross-counterfactual, cross-site) is
+$\approx \$400$. All experiments are reproducible on a single H100
+$80$\,GB instance with the released code.
+
+\subsection{Test coverage}
+\label{app:tests}
+
+The released codebase contains $30$ unit tests (CPU, $\sim 1$\,s
+wallclock) covering: (i) faith-loss behaviour --- zero-loss when full
+overwhelms alt; positive-loss when equal; SFT-coupling-required scenario;
+correctness term; padding ignored; weights additive; differentiability;
+flipped-row-mask filtering; zero-valid-rows no-NaN
+(\texttt{tests/test\_faith\_loss.py}, $9$ tests). (ii) IMG\_correct
+behaviour --- perfect grounding; pure inversion caught at margin; mixed;
+no-change; shape mismatch raises; generator-shift contract; v5\_3
+replication scenario (\texttt{tests/test\_img\_correct.py}, $7$ tests).
+(iii) Dual-filter behaviour --- min, product aggregations; mismatched
+row-sets raises; unknown aggregation raises; disagreement-rate counting
+(\texttt{tests/test\_dual\_filter.py}, $5$ tests). (iv) Data-loader
+behaviour --- laterality regex; collate padding; three image variants on
+laterality batch; flipping disabled; no-laterality rows; labels equal
+input-ids; verifier-only filter drop; weight-remapping with interleaved
+no-target rows (\texttt{tests/test\_data\_loader.py}, $9$ tests).
+
+\section{Full IMG\_correct Retroactive Audit}
+\label{app:audit}
+
+\begin{table*}[t]
+\centering
+\small
+\caption{\textbf{Full IMG\_correct retroactive audit, all 18 cells} (nine
+verifier configurations + nine v5 ablations, each on $n=2{,}974$ verifier
+rows). Acc full and Acc masked are accuracies under the full and image-
+zeroed inputs, respectively.}
+\label{tab:audit-full}
+\setlength{\tabcolsep}{4.0pt}
+\begin{tabular}{lrrrrrr}
+\toprule
+\textbf{Config} & \textbf{IMG\_corr} & \textbf{IMG} & \textbf{Inv} & \textbf{Inv/IMG} & \textbf{Acc full} & \textbf{Acc mask}\\
+\midrule
+\multicolumn{7}{l}{\emph{Headline configurations.}}\\
+v5\_0\_base                   & 3.83  & 1.28  & 0.17 & 13.2\% & 92.30 & 91.02\\
+v5\_1\_ground                 & 3.40  & 2.62  & 0.13 & \phantom{0}5.1\% & 91.22 & 88.60\\
+v5\_2\_real                   & 64.66 & 61.84 & 0.91 & \phantom{0}1.5\% & 92.60 & 30.77\\
+\textbf{v5\_3\_contrast}      & \textbf{71.05} & \textbf{68.12} & \textbf{0.74} & \textbf{1.1\%} & 93.01 & 24.88\\
+v5\_4\_final                  & 68.43 & 63.55 & 0.40 & \phantom{0}0.6\% & 91.69 & 28.14\\
+v6\_0\_3site                  & 74.51 & 70.21 & 0.07 & \phantom{0}0.1\% & 91.06 & 20.85\\
+v6\_0\_loo\_no\_openi         & 38.20 & 34.20 & 0.00 & \phantom{0}0.0\% & 87.42 & 53.23\\
+v6\_0\_loo\_no\_padchest      & 43.95 & 41.80 & 1.31 & \phantom{0}3.1\% & 92.30 & 50.50\\
+v6\_0\_loo\_no\_chestx        & 18.59 & 14.53 & 0.20 & \phantom{0}1.4\% & 81.27 & 66.75\\
+\addlinespace
+\multicolumn{7}{l}{\emph{v5 ablations.}}\\
+abl\_scale\_25                & 69.07 & 65.64 & 0.71 & \phantom{0}1.1\% & 92.70 & 27.07\\
+abl\_scale\_50                & 70.51 & 67.59 & 0.81 & \phantom{0}1.2\% & 92.80 & 25.22\\
+abl\_scale\_100               & 66.24 & 62.81 & 0.61 & \phantom{0}1.0\% & 92.80 & 29.99\\
+abl\_hothresh\_70             & 73.84 & 69.97 & 0.57 & \phantom{0}0.8\% & 92.60 & 22.63\\
+\textbf{abl\_hothresh\_80}    & \textbf{77.98} & \textbf{74.78} & 0.74 & \phantom{0}1.0\% & 92.77 & 17.99\\
+abl\_no\_contrast             & 63.28 & 60.02 & 0.87 & \phantom{0}1.4\% & 92.77 & 32.75\\
+abl\_no\_ground               & 72.53 & 69.64 & 0.50 & \phantom{0}0.7\% & 92.97 & 23.34\\
+abl\_no\_uncert               & 73.40 & 70.54 & 0.98 & \phantom{0}1.4\% & 93.17 & 22.63\\
+\textbf{abl\_no\_consist}     & \textbf{\phantom{0}3.60}  & \textbf{\phantom{0}2.79}  & 0.30 & \phantom{0}10.8\% & 88.80 & 86.01\\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\textbf{Distribution of induced-inversion contributions.} Across all 18
+cells: induced inversion has an absolute range of
+$[0.00, 1.31]$\,pp and a relative range of $[0.0\%, 13.2\%]$ of the
+corresponding IMG. The cell with the largest \emph{relative} induced
+inversion is $\mathrm{v5\_0\_base}$ at $13.2\%$, with the smallest
+absolute IMG ($1.28$\,pp); fractionally large because any flipping at all
+under masking is fractionally large at this scale. The cell with the
+largest \emph{absolute} induced inversion is
+$\mathrm{v6\_0\_loo\_no\_padchest}$ at $1.31$\,pp ($3.1\%$ of IMG). No
+cell exceeds the pre-registered $\geq 30\%$ threshold; no cell is even
+close.
+
+\textbf{The \texttt{abl\_no\_consist} cell is the cleanest disconfirmation
+of the pre-registered concern.} Removing the consistency loss collapses
+IMG\_correct from $\sim 70$\,pp (nominal v5 family) to $3.60$\,pp ---
+near baseline --- while \emph{simultaneously} reducing induced inversion
+from $\sim 0.7$\,pp to $0.30$\,pp. The pre-registered concern was that
+the consistency loss \emph{caused} induced inversion. The empirical
+pattern is: with the consistency loss, IMG\_correct is high and induced
+inversion is small; without it, both are small. The consistency loss
+contributes the IMG\_correct, not the induced inversion.
+
+\section{Cross-Counterfactual Detail}
+\label{app:cross-cf}
+
+\begin{table*}[t]
+\centering
+\small
+\caption{\textbf{Cross-counterfactual eval --- full numbers including
+masked accuracy.} Each row uses the same sft\_full seed-42 checkpoint;
+only the counterfactual transformation differs. The masked accuracy
+column makes visible that under the trained mean and noise
+counterfactuals the model drives image-zeroed accuracy to near-zero
+($1.51\%$ and $13.38\%$ respectively), while under crop and occlude the
+model retains $71.83\%$ and $75.20\%$ accuracy --- close to the
+unperturbed $75.48\%$. The faith loss has trained the model to drive
+$p(y\mid \text{neutral image}) \to 0$ on the trained counterfactual; it
+has not trained the model to do so on counterfactuals it has not seen.}
+\label{tab:cross-cf-full}
+\setlength{\tabcolsep}{3.0pt}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Counterfactual} & \textbf{IMG} & \textbf{IMG\_corr} & \textbf{Acc full} & \textbf{Acc mask}\\
+\midrule
+\textbf{mean (TRAINED)} & 73.97 & 74.00 & 75.48 & \phantom{0}1.51\\
+noise                   & 62.10 & 62.20 & 75.48 & 13.38\\
+crop                    & \phantom{0}3.64 & \phantom{0}4.81 & 75.48 & 71.83\\
+occlude                 & \phantom{0}0.28 & \phantom{0}1.11 & 75.48 & 75.20\\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\textbf{Baseline anchor.} On the matching crop counterfactual, sft\_only
+seed-42 yields IMG $= 0.33$\,pp, IMG\_correct $= 2.80$\,pp at
+$73.82\%$ accuracy, induced inversion $= 0.26$\,pp ($n=105{,}921$ tokens).
+The cross-counterfactual sft\_full $-$ sft\_only IMG\_correct gap on
+crop is $4.81 - 2.80 = 2.01$\,pp; the gap on the trained mean
+counterfactual is $74.00 - 2.38 = 71.62$\,pp (single-seed comparison; the
+3-seed comparison gives $72.58$\,pp). The order-of-magnitude difference
+between trained-mean and crop is the operational meaning of the
+$\S\ref{sec:cross-cf}$ partial-circularity finding.
+
+\section{Cross-Site Detail}
+\label{app:crosssite}
+
+\textbf{Silver target construction.} The ChestX-Det10 test rows in the
+standard test set have empty \texttt{evidence\_text} fields. We constructed
+\texttt{groundbench\_test\_chestx\_det10\_silver.jsonl} ($1{,}122$ rows)
+by injecting CheXagent-2-3B \citep{chen2024chexagent} generations as
+\texttt{reference\_report}; the silver-target nature is reported
+explicitly. Reviewers may push on this caveat. PadChest-GR cross-site
+\citep{castro2024padchestgr} requires a fresh CheXagent generation pass
+and is deferred. \textbf{Token-level analysis.} The cross-site
+$54.65\%$ token-level accuracy is $20$\,pp lower than in-distribution
+OpenI accuracy, reflecting (i) genuine cross-site difficulty (different
+camera vendors, different radiologist phrasing) and (ii) the silver-
+target nature (the model is being graded against another model's output,
+not radiologist gold).
+
+\section{Pre-Registered Hypotheses}
+\label{app:prereg}
+
+\textbf{(i) Full method reduces IMG\_correct on OpenI-test by $\geq 5$\,pp
+vs SFT-only at matched accuracy.} Status: \textbf{HIT BY AN ORDER OF
+MAGNITUDE} on three seeds $\times$ three faith-loss configs. Realised:
+$+72.58$\,pp at $+1.17$\,pp accuracy.
+
+\textbf{(ii) IMG\_correct refinement reveals $\geq 30\%$ of $\mathrm{v5\_3\_contrast}$'s
+IMG as induced inversion.} Status: \textbf{REFUTED}. Realised: $1.1\%$.
+Pattern holds across all 18 audited cells (induced-inversion contributions
+$\le 1.31$\,pp absolute, $\le 13.2\%$ relative).
+
+\textbf{(iii) Dual filter dominates the faith loss in the ablation.}
+Status: \textbf{INVERTED}. The empirical pattern is the opposite ---
+sft\_dual is statistically indistinguishable from sft\_only baseline; the
+faith loss is the load-bearing component (sft\_faith alone gives
+$+71.73$\,pp over baseline); the increment from adding the dual filter on
+top of the faith loss is $+0.85$\,pp seed-mean (within one standard
+deviation of sft\_full). We retain the dual filter in the recipe because
+the four-cell decomposition (Appendix~\ref{app:filter}) demonstrates a
+symmetric-extension contribution axis that is not addressable by text-
+only filtering, and the full method's $+0.85$\,pp seed-mean over
+sft\_faith is small but consistent across all three seeds.
+
+\textbf{Reporting commitment.} One pre-registration HIT, one REFUTED,
+one INVERTED --- all reported transparently. Each was tested
+independently in \S\ref{sec:results}. The methodological refinement
+(IMG\_correct) lands as a contribution independently of the empirical
+results, since it is a reusable audit-tool that improves the
+interpretation of any future or prior IMG-style metric.
+
+\section{Compute Disclosure}
+\label{app:compute}
+
+Total compute spent on this paper: $\approx \$400$ on Modal H100 80\,GB
+(approximately $30$ H100-hours total --- $15$ Phase 4 fine-tunes at
+$\sim 1.5$\,h each on simple-loss configurations and $\sim 3$--$4$\,h
+each on faith-loss configurations; $15$ Phase 5 IMG\_correct evals at
+$5$--$10$\,min each; $18$ retroactive audit cells at $3$--$5$\,min each;
+$4$ cross-counterfactual cells; $3$ cross-site cells). All experiments are
+reproducible on a single H100 $80$\,GB instance with the released code;
+the budget is well within reach for any researcher with comparable cloud-
+compute access. The full project envelope (including image-build retries,
+smoke tests, and the inevitable launcher overhead from two Modal billing-
+cycle cap-hit cycles during the run) is approximately $\$250$ over
+baseline; the headline experiments themselves are $\le \$150$.
+
+\end{document}

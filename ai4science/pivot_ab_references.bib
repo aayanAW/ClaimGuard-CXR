@@ -1,0 +1,260 @@
+% Bibliography (shared across the project papers).
+% Entries verified against primary sources (arXiv abstract pages,
+% conference proceedings, PMLR volumes).
+
+@article{restrepo2025sms,
+  title     = {On the Risk of Misleading Reports: Diagnosing Textual Biases in Multimodal Clinical {AI}},
+  author    = {Restrepo, David and Ktena, Ira and Vakalopoulou, Maria and Christodoulidis, Stergios and Ferrante, Enzo},
+  journal   = {arXiv preprint arXiv:2508.00171},
+  year      = {2025},
+  note      = {Accepted at MICCAI 2025 1st Workshop on Multimodal LLMs in Clinical Practice.},
+  url       = {https://arxiv.org/abs/2508.00171},
+}
+
+@inproceedings{li2025sfc,
+  title     = {The Devil Is in the Details: Tackling Unimodal Spurious Correlations for Generalizable Multimodal Reward Models},
+  author    = {Li, Zichao and Wen, Xueru and Lou, Jie and Ji, Yuqiu and Lu, Yaojie and
+                Han, Xianpei and Zhang, Debing and Sun, Le},
+  booktitle = {International Conference on Machine Learning ({ICML})},
+  year      = {2025},
+  url       = {https://arxiv.org/abs/2503.03122},
+  note      = {Introduces the Shortcut-Failure Coefficient (SFC).},
+}
+
+@article{gui2024conformal,
+  title     = {Conformal Alignment: Knowing When to Trust Foundation Models with Guarantees},
+  author    = {Gui, Yu and Jin, Ying and Ren, Zhimei},
+  journal   = {arXiv preprint arXiv:2405.10301},
+  year      = {2024},
+  url       = {https://arxiv.org/abs/2405.10301},
+  note      = {Reference-data-trained alignment predictor for FDR-controlled output selection.
+                Applied to QA + radiology RG. Operates on a frozen predictor.},
+}
+
+@article{li2025conflvlm,
+  title     = {Towards Statistical Factuality Guarantee for Large Vision-Language Models},
+  author    = {Li, Zhuohang and Yan, Chao and Jackson, Nicholas J. and Cui, Wendi and
+                Li, Bo and Zhang, Jiaxin and Malin, Bradley A.},
+  journal   = {arXiv preprint arXiv:2502.20560},
+  year      = {2025},
+  url       = {https://arxiv.org/abs/2502.20560},
+  note      = {Conformal claim filtering on LLaVa-1.5 (frozen LVLM).},
+}
+
+% --- Foundational priors ---
+
+@inproceedings{mohri2024conformal,
+  title     = {Language Models with Conformal Factuality Guarantees},
+  author    = {Mohri, Christopher and Hashimoto, Tatsunori},
+  booktitle = {International Conference on Machine Learning ({ICML})},
+  year      = {2024},
+  url       = {https://arxiv.org/abs/2402.10978},
+}
+
+@inproceedings{gururangan2018annotation,
+  title     = {Annotation Artifacts in Natural Language Inference Data},
+  author    = {Gururangan, Suchin and Swayamdipta, Swabha and Levy, Omer and
+                Schwartz, Roy and Bowman, Samuel and Smith, Noah A.},
+  booktitle = {NAACL-HLT},
+  year      = {2018},
+  url       = {https://aclanthology.org/N18-2017/},
+}
+
+@inproceedings{poliak2018hypothesis,
+  title     = {Hypothesis Only Baselines in Natural Language Inference},
+  author    = {Poliak, Adam and Naradowsky, Jason and Haldar, Aparajita and Rudinger, Rachel and Van Durme, Benjamin},
+  booktitle = {*SEM},
+  year      = {2018},
+  url       = {https://aclanthology.org/S18-2023/},
+}
+
+@inproceedings{recht2019imagenet,
+  title     = {Do {ImageNet} Classifiers Generalize to {ImageNet}?},
+  author    = {Recht, Benjamin and Roelofs, Rebecca and Schmidt, Ludwig and Shankar, Vaishaal},
+  booktitle = {ICML},
+  year      = {2019},
+  url       = {https://arxiv.org/abs/1902.10811},
+  note      = {Methodological precedent for retroactive auditing of prior reported numbers under
+                a refined evaluation setup.},
+}
+
+% --- Architecture / methods cited ---
+
+@inproceedings{hu2022lora,
+  title     = {{LoRA}: Low-Rank Adaptation of Large Language Models},
+  author    = {Hu, Edward J. and Shen, Yelong and Wallis, Phillip and Allen-Zhu, Zeyuan and
+                Li, Yuanzhi and Wang, Shean and Wang, Lu and Chen, Weizhu},
+  booktitle = {ICLR},
+  year      = {2022},
+  url       = {https://arxiv.org/abs/2106.09685},
+}
+
+% --- Radiology generators ---
+
+@article{bannur2024maira2,
+  title     = {{MAIRA-2}: Grounded Radiology Report Generation},
+  author    = {Bannur, Shruthi and Bouzid, Kenza and Castro, Daniel C. and
+                Schwaighofer, Anton and Thieme, Anja and Bond-Taylor, Sam and
+                Ilse, Maximilian and {P{\'e}rez-Garc{\'i}a}, Fernando and
+                Salvatelli, Valentina and Sharma, Harshita and Meissen, Felix and
+                Ranjit, Mercy and Srivastav, Shaury and Gong, Julia and
+                Codella, Noel C. F. and Falck, Fabian and Oktay, Ozan and
+                Lungren, Matthew P. and Wetscherek, Maria Teodora and
+                {Alvarez-Valle}, Javier and Hyland, Stephanie L.},
+  journal   = {arXiv preprint arXiv:2406.04449},
+  year      = {2024},
+  url       = {https://arxiv.org/abs/2406.04449},
+  note      = {Microsoft Research; research-only licence.},
+}
+
+@article{chen2024chexagent,
+  title     = {A Vision-Language Foundation Model to Enhance Efficiency of Chest {X-ray} Interpretation},
+  author    = {Chen, Zhihong and Varma, Maya and Xu, Justin and Paschali, Magdalini and {Van Veen}, Dave and Johnston, Andrew and Youssef, Alaa and Blankemeier, Louis and Bluethgen, Christian and Altmayer, Stephan and others},
+  journal   = {arXiv preprint arXiv:2401.12208},
+  year      = {2024},
+  url       = {https://arxiv.org/abs/2401.12208},
+  note      = {Stanford-AIMI. The model is referred to as {CheXagent}/{CheXagent-2} in the system documentation.},
+}
+
+@article{google2024medgemma,
+  title   = {{MedGemma} Technical Report},
+  author  = {Sellergren, Andrew and Kazemzadeh, Sahar and Jaroensri, Tiam and Kiraly, Atilla and Traverse, Madeleine and Kohlberger, Timo and Xu, Shawn and Jamil, Fayaz and Hughes, C{\'i}an and Lau, Charles and others},
+  journal = {arXiv preprint arXiv:2507.05201},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2507.05201},
+  note    = {Google Health AI Developer Foundations; model weights at \url{https://huggingface.co/google/medgemma-4b-it} under HAI-DEF research-only licence.},
+}
+
+% --- Datasets ---
+
+@article{demner2016openi,
+  title     = {Preparing a collection of radiology examinations for distribution and retrieval},
+  author    = {Demner-Fushman, Dina and Kohli, Marc D. and Rosenman, Marc B. and
+                Shooshan, Sonya E. and Rodriguez, Laritza and Antani, Sameer and
+                Thoma, George R. and McDonald, Clement J.},
+  journal   = {Journal of the American Medical Informatics Association},
+  volume    = {23},
+  number    = {2},
+  pages     = {304--310},
+  year      = {2016},
+  url       = {https://openi.nlm.nih.gov/},
+  note      = {OpenI Chest X-ray collection (Indiana University).},
+}
+
+@article{liu2020chestxdet,
+  title     = {{ChestX-Det10}: Chest {X-ray} Dataset on Detection of Thoracic Abnormalities},
+  author    = {Liu, Jingyu and Lian, Jie and Yu, Yizhou},
+  journal   = {arXiv preprint arXiv:2006.10550},
+  year      = {2020},
+  note      = {arXiv-only release. Bounding-box annotations; no paired findings text.},
+}
+
+@article{bustos2020padchest,
+  title     = {{PadChest}: A large chest X-ray image dataset with multi-label annotated reports},
+  author    = {Bustos, Aurelia and Pertusa, Antonio and Salinas, Jose-Maria and {de la Iglesia-Vay{\'a}}, Maria},
+  journal   = {Medical Image Analysis},
+  volume    = {66},
+  pages     = {101797},
+  year      = {2020},
+  note      = {Original PadChest. The grounded-reports variant is the separate Castro et al.\ 2024 paper.},
+}
+
+@article{castro2024padchestgr,
+  title     = {{PadChest-GR}: A Bilingual Chest {X-Ray} Dataset for Grounded Radiology Report Generation},
+  author    = {Castro, Daniel C. and Bustos, Aurelia and Bannur, Shruthi and Hyland, Stephanie L. and Bouzid, Kenza and Wetscherek, Maria Teodora and {S{\'a}nchez-Valverde}, Maria Dolores and {Jaques-P{\'e}rez}, Lara and {P{\'e}rez-Rodr{\'i}guez}, Lourdes and Takeda, Kenji and Salinas, {Jos{\'e} Mar{\'i}a} and {Alvarez-Valle}, Javier and {Galant Herrero}, Joaqu{\'i}n and Pertusa, Antonio},
+  journal   = {arXiv preprint arXiv:2411.05085},
+  year      = {2024},
+  url       = {https://arxiv.org/abs/2411.05085},
+  note      = {Also published in NEJM AI (2025).},
+}
+
+@article{johnson2019mimiccxr,
+  title     = {{MIMIC-CXR}, a de-identified publicly available database of chest radiographs with free-text reports},
+  author    = {Johnson, Alistair E. W. and Pollard, Tom J. and Berkowitz, Seth J. and Greenbaum, Nathaniel R. and Lungren, Matthew P. and Deng, Chih-ying and Mark, Roger G. and Horng, Steven},
+  journal   = {Scientific Data},
+  volume    = {6},
+  number    = {1},
+  pages     = {317},
+  year      = {2019},
+  doi       = {10.1038/s41597-019-0322-0},
+  note      = {Listed for completeness; the dataset is not used in this study.},
+}
+
+@article{zhang2024biomedclip,
+  title     = {{BiomedCLIP}: a multimodal biomedical foundation model pretrained from fifteen million scientific image-text pairs},
+  author    = {Zhang, Sheng and Xu, Yanbo and Usuyama, Naoto and Xu, Hanwen and Bagga, Jaspreet and others},
+  journal   = {arXiv:2303.00915 / Nature Communications},
+  year      = {2024},
+  url       = {https://arxiv.org/abs/2303.00915},
+  note      = {Biomedical image encoder.},
+}
+
+% --- Audit-and-repair frameworks for prior radiology generators (mentioned in §2) ---
+% All entries below were verified 2026-05-06 against primary sources
+% (arXiv abstract pages, CVPR proceedings, MLR PMLR volume 281).
+% Citekeys for ReXTrust and FactCheXcker were rewritten because the first
+% authors had been guessed wrong in the original draft; re-verified
+% against arXiv abstract pages and the relevant proceedings.
+
+@inproceedings{zhang2025radflag,
+  title     = {{RadFlag}: A Black-Box Hallucination Detection Method for Medical Vision-Language Models},
+  author    = {Zhang, Serena and Sambara, Sraavya and Banerjee, Oishi and Acosta, Julian and Fahrner, L. John and Rajpurkar, Pranav},
+  booktitle = {Proceedings of the 4th Machine Learning for Health Symposium},
+  year      = {2025},
+  series    = {PMLR 259:1087-1103},
+  url       = {https://arxiv.org/abs/2411.00299},
+  note      = {Self-agreement-based hallucination detection.},
+}
+
+@inproceedings{hardy2025rextrust,
+  title     = {{ReXTrust}: A Model for Fine-Grained Hallucination Detection in {AI}-Generated Radiology Reports},
+  author    = {Hardy, Romain and Kim, Sung Eun and Ro, Du Hyun and Rajpurkar, Pranav},
+  booktitle = {Proceedings of the First {AAAI} Bridge Program on {AI} for Medicine and Healthcare},
+  series    = {Proceedings of Machine Learning Research},
+  volume    = {281},
+  year      = {2025},
+  url       = {https://proceedings.mlr.press/v281/hardy25a.html},
+  note      = {White-box hidden-state probe for hallucination detection.},
+}
+
+@inproceedings{heiman2025factchexcker,
+  title     = {{FactCheXcker}: Mitigating Measurement Hallucinations in Chest {X-ray} Report Generation Models},
+  author    = {Heiman, Alice and Zhang, Xiaoman and Chen, Emma and Kim, Sung Eun and Rajpurkar, Pranav},
+  booktitle = {Proceedings of the {IEEE/CVF} Conference on Computer Vision and Pattern Recognition (CVPR)},
+  year      = {2025},
+  note      = {Code-generation pipeline for measurement de-hallucination.},
+}
+
+% --- Additional entries for the verifier paper (paper_4pg.tex) ---
+
+@article{liu2019roberta,
+  title     = {{RoBERTa}: A Robustly Optimized {BERT} Pretraining Approach},
+  author    = {Liu, Yinhan and Ott, Myle and Goyal, Naman and Du, Jingfei and Joshi, Mandar and Chen, Danqi and Levy, Omer and Lewis, Mike and Zettlemoyer, Luke and Stoyanov, Veselin},
+  journal   = {arXiv preprint arXiv:1907.11692},
+  year      = {2019},
+  url       = {https://arxiv.org/abs/1907.11692},
+}
+
+@article{angelopoulos2021gentle,
+  title     = {A Gentle Introduction to Conformal Prediction and Distribution-Free Uncertainty Quantification},
+  author    = {Angelopoulos, Anastasios N. and Bates, Stephen},
+  journal   = {arXiv preprint arXiv:2107.07511},
+  year      = {2021},
+  url       = {https://arxiv.org/abs/2107.07511},
+}
+
+@inproceedings{tibshirani2019conformal,
+  title     = {Conformal Prediction Under Covariate Shift},
+  author    = {Tibshirani, Ryan J. and Foygel Barber, Rina and Cand{\`e}s, Emmanuel J. and Ramdas, Aaditya},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year      = {2019},
+  url       = {https://arxiv.org/abs/1904.06019},
+}
+
+@inproceedings{ostmeier2024green,
+  title     = {{GREEN}: Generative Radiology Report Evaluation and Error Notation},
+  author    = {Ostmeier, Sophie and Xu, Justin and Chen, Zhihong and Varma, Maya and Blankemeier, Louis and Bluethgen, Christian and Michalson, Arne Edward and Moseley, Michael and Langlotz, Curtis and Chaudhari, Akshay S. and Delbrouck, Jean-Benoit},
+  booktitle = {Findings of the Association for Computational Linguistics: EMNLP 2024},
+  year      = {2024},
+  url       = {https://arxiv.org/abs/2405.03595},
+}

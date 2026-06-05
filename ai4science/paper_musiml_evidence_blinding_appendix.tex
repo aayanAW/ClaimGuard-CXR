@@ -1,0 +1,345 @@
+%%%%%%%% ICML 2026 Workshop Submission (4-page main + unlimited appendix) %%%%%%%
+%
+% Compatible with AI4Research 2026 (4 pages main + unlimited refs/appendix in
+% same PDF) and PhilML 2026 (4 content pages + unlimited refs + supplementary).
+% Uses the official ICML 2026 style; double-blind by default.
+%
+% Style files (icml2026.sty / .bst / algorithm.sty / algorithmic.sty /
+% fancyhdr.sty) live alongside this .tex file; bibliography at
+% pivot_ab_references.bib.
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\documentclass{article}
+
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{hyperref}
+\usepackage{icml2026}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{mathtools}
+\usepackage[capitalize,noabbrev]{cleveref}
+
+\icmltitlerunning{Supplementary Material}
+
+\begin{document}
+
+\twocolumn[
+  \icmltitle{Supplementary Material for: \\
+             Closing Evidence-Blindness in Radiology Report Generators via Dual-Adversarial Causal-Faithfulness Training}
+
+  \begin{icmlauthorlist}
+    \icmlauthor{Anonymous Authors}{anon}
+  \end{icmlauthorlist}
+  \icmlaffiliation{anon}{Anonymous Institution}
+  \icmlcorrespondingauthor{Anonymous Authors}{anon@example.org}
+  \icmlkeywords{evidence-blindness, causal-faithfulness, radiology report
+                generation, multimodal foundation models, medical AI safety,
+                IMG\_correct, counterfactual evaluation, LoRA fine-tuning,
+                trustworthy AI, MedGemma}
+
+  \vskip 0.3in
+]
+
+\printAffiliationsAndNotice{}
+
+
+% Supplementary material companion document.
+
+\appendix
+\onecolumn
+
+\section{Reproducibility Checklist}
+\label{app:repro}
+
+\textbf{Met:} (i) Training data sources are public (OpenI; ChestX-Det10
+silver-target for cross-site eval; PadChest-GR is named as deferred
+cross-site target; MIMIC-CXR is not used). (ii) Hyperparameters in
+Appendix~\ref{app:training}; per-configuration YAML in the released
+codebase. (iii) $30$ unit tests pass on CPU. (iv) Modal H100 80\,GB
+infrastructure documented; all entrypoints documented.
+(v) Per-fine-tune training-step counts, save-every-steps schedule, and
+resume-from-checkpoint logic in the released code.
+
+\textbf{Deferred to extended version:} code-release URL, weights-release
+URL (anonymized for double-blind review; filled at camera-ready);
+cross-site eval on PadChest-GR (no silver targets available in present
+infrastructure); three-seed averaging on noise/crop/occlude cross-
+counterfactuals (single-seed in the main paper's Results section, three-seed values
+in App.~\ref{app:cross-cf}); mech-interp sweep validating a gradient-
+norm monitor's AUROC.
+
+\section{Extended Methods}
+\label{app:methods}
+
+\subsection{Faith loss derivation and implementation}
+\label{app:faith}
+
+The naive consistency loss
+$\mathcal{L}_{\mathrm{KL}} = \mathrm{ReLU}(m - \mathrm{KL}(p_{\mathrm{full}} \| p_{\mathrm{alt}}))$
+admits a degenerate optimum: a model that always emits a uniform
+distribution under masking satisfies any finite KL margin without using
+the image. The token-wise correctness-gain margin replaces the
+distributional divergence with a per-token signal coupled to gold-token
+correctness on the full input. The implementation runs three forward
+passes per training step (full, image-zeroed, image-flipped on
+laterality rows) and exposes a flipped-row mask that zeroes the flipped
+contribution on non-laterality rows. Image-zeroing uses the per-channel
+mean of the batch's pixel values, not a literal zero tensor: a literal
+zero is, after the processor's normalisation, a specific out-of-
+distribution input the model has never seen at training time. The
+per-channel mean produces a uniform ``neutral'' image at the model's own
+normalisation, which is what we want when we say ``the image is absent.''
+
+\subsection{Dual filter four-cell decomposition}
+\label{app:filter}
+
+\begin{table*}[t]
+\centering
+\small
+\caption{\textbf{Four-cell decomposition of which filter branch flags
+each training row.} On the $20{,}560$-row training pool, the image-only
+branch catches an additional $6.5\%$ of rows that the text-only branch
+alone would miss; this is the symmetric-extension contribution axis
+relative to \citet{li2025sfc}.}
+\label{tab:filter-decomp}
+\begin{tabular}{lrr}
+\toprule
+\textbf{Filter outcome} & \textbf{Count} & \textbf{\% of pool}\\
+\midrule
+Both filters caught (unimodally solvable on either axis) & $15{,}375$ & $74.8\%$\\
+Text-only caught, image-only passed                       & $\phantom{0}2{,}156$  & $10.5\%$\\
+\textbf{Image-only caught, text-only passed (novelty axis)} & $\phantom{0}\mathbf{1{,}329}$  & $\mathbf{6.5}\%$\\
+Neither caught (genuinely multimodal)                     & $\phantom{0}1{,}700$  & $\phantom{0}8.3\%$\\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+After the subsequent text-target filter restricts training to OpenI rows
+with non-empty findings text, the per-row weight distribution within
+the surviving $10{,}839$ rows is $95.6\%$ at $w_{\min} = 0.2$ and
+$4.4\%$ at $w = 1.0$. The continuous-SFC ablation replaces the discrete
+$\{w_{\min}, 1\}$ rule with $\mathrm{SFC}(x) = 1 - p_{\mathrm{text}}^{\mathrm{correct}}(x)$
+clipped to $[w_{\min}, 1]$.
+
+\subsection{IMG\_correct derivation and the ``IMG\_correct $>$ IMG'' identity}
+\label{app:imgcorrect}
+
+For a binary classifier $f$ with gold class $y$, partition examples into
+$\mathrm{cc}/\mathrm{ci}/\mathrm{ic}/\mathrm{ii}$ by whether $f$ is
+correct on the full and image-zeroed inputs. Then
+$\mathrm{IMG} = (n_{\mathrm{ci}} - n_{\mathrm{ic}})/n \times 100$.
+IMG\_correct further partitions $\mathrm{ci}$ into a margin-passing
+subset (where $p_{\mathrm{full}}(y) - p_{\mathrm{masked}}(y) \geq \tau$)
+and a margin-failing subset (the \emph{induced-inversion} sub-
+population):
+\begin{align*}
+\mathrm{IMG\_correct} &= n_{\mathrm{ci,with\text{-}margin}}/n \times 100,\\
+\mathrm{induced\ inv.} &= (n_{\mathrm{ci,no\text{-}margin}} -
+                            n_{\mathrm{ci,with\text{-}margin}})/n \times 100.
+\end{align*}
+\textbf{IMG\_correct can exceed IMG.} When the $\mathrm{ic}$ population
+(model becomes correct under masking) is non-trivial and the margin-
+failing $\mathrm{ci}$ population is small, IMG\_correct
+$> (n_{\mathrm{ci}} - n_{\mathrm{ic}})/n$. This is why several
+configurations in the retroactive audit show
+IMG\_correct $>$ IMG; it is mathematically valid and does \emph{not}
+indicate negative induced inversion. For autoregressive generators we
+apply this logic per token on the gold target sequence (with the
+causal-LM shift between logits and target IDs).
+
+\subsection{Training hyperparameters and compute}
+\label{app:training}
+
+\begin{table*}[t]
+\centering
+\small
+\caption{\textbf{Training hyperparameters across all five
+configurations.} The configurations differ only in (i) which weights
+JSONL is loaded, (ii) whether the faith loss is enabled, (iii) whether
+the flipped counterfactual is enabled, and (iv) the resulting
+$\lambda_{\mathrm{faith}}$. All other hyperparameters are identical.}
+\label{tab:hyper}
+\begin{tabular}{lc}
+\toprule
+\textbf{Hyperparameter} & \textbf{Value}\\
+\midrule
+Backbone                          & MedGemma-4B-IT (research-only licence)\\
+LoRA rank / alpha                 & $16$ / $32$\\
+LoRA targets                      & q\_proj, k\_proj, v\_proj, o\_proj\\
+Trainable parameters              & $11.9$\,M ($0.28\%$ of $4.31$\,B base)\\
+Optimizer                         & AdamW\\
+Learning rate                     & $2\times 10^{-4}$\\
+Weight decay                      & $0.0$ on LoRA targets, $0.01$ elsewhere\\
+LR schedule                       & cosine to zero, $50$-step linear warm-up\\
+Batch size                        & $2$ (grad accum $\times 8$; effective $16$)\\
+Max optimizer steps               & $2{,}500$\\
+Mixed precision                   & bf16\\
+Faith-loss margin (nats)          & $0.3$\\
+Image masking                     & per-channel mean of batch pixel values\\
+$\lambda_{\mathrm{faith}}$        & $0.3$ when enabled, $0$ otherwise\\
+$w_{\min}$ (filter downweight)    & $0.2$\\
+Filter activation threshold       & $0.7$ on $p_{\text{branch}}^{\text{correct}}$\\
+Random seeds                      & $\{42, 1337, 9001\}$\\
+GPU                               & NVIDIA H100 80\,GB (Modal)\\
+Wallclock per fine-tune           & $1.5$--$4.0$\,h (faith-loss configs $\sim 3\times$ slower)\\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+Faith-loss configurations are $\sim 3\times$ slower per step than
+simple-loss configurations because each step runs three forward passes
+(full, image-zeroed, image-flipped). Total Phase 4 training compute:
+$\approx \$200$ on Modal H100 80\,GB across $15$ fine-tunes ($5$
+configs $\times$ $3$ seeds). Total project envelope (training, primary
+evals, retroactive audit, cross-counterfactual, cross-site):
+$\approx \$400$.
+
+\section{Full IMG\_correct Retroactive Audit}
+\label{app:audit}
+
+\begin{table*}[t]
+\centering
+\small
+\caption{\textbf{Full IMG\_correct retroactive audit, all 18 cells}
+(nine verifier configurations $+$ nine v5 ablations, each on $n=2{,}974$
+verifier rows). \texttt{Acc full} and \texttt{Acc masked} are accuracies
+under the full and image-zeroed inputs, respectively.}
+\label{tab:audit-full}
+\setlength{\tabcolsep}{4.0pt}
+\begin{tabular}{lrrrrrr}
+\toprule
+\textbf{Config} & \textbf{IMG\_corr} & \textbf{IMG} & \textbf{Inv} & \textbf{Inv/IMG} & \textbf{Acc full} & \textbf{Acc mask}\\
+\midrule
+\multicolumn{7}{l}{\emph{Headline configurations.}}\\
+v5\_0\_base                   & 3.83  & 1.28  & 0.17 & 13.2\% & 92.30 & 91.02\\
+v5\_1\_ground                 & 3.40  & 2.62  & 0.13 & \phantom{0}5.1\% & 91.22 & 88.60\\
+v5\_2\_real                   & 64.66 & 61.84 & 0.91 & \phantom{0}1.5\% & 92.60 & 30.77\\
+\textbf{v5\_3\_contrast}      & \textbf{71.05} & \textbf{68.12} & \textbf{0.74} & \textbf{1.1\%} & 93.01 & 24.88\\
+v5\_4\_final                  & 68.43 & 63.55 & 0.40 & \phantom{0}0.6\% & 91.69 & 28.14\\
+v6\_0\_3site                  & 74.51 & 70.21 & 0.07 & \phantom{0}0.1\% & 91.06 & 20.85\\
+v6\_0\_loo\_no\_openi         & 38.20 & 34.20 & 0.00 & \phantom{0}0.0\% & 87.42 & 53.23\\
+v6\_0\_loo\_no\_padchest      & 43.95 & 41.80 & 1.31 & \phantom{0}3.1\% & 92.30 & 50.50\\
+v6\_0\_loo\_no\_chestx        & 18.59 & 14.53 & 0.20 & \phantom{0}1.4\% & 81.27 & 66.75\\
+\addlinespace
+\multicolumn{7}{l}{\emph{v5 ablations.}}\\
+abl\_scale\_25                & 69.07 & 65.64 & 0.71 & \phantom{0}1.1\% & 92.70 & 27.07\\
+abl\_scale\_50                & 70.51 & 67.59 & 0.81 & \phantom{0}1.2\% & 92.80 & 25.22\\
+abl\_scale\_100               & 66.24 & 62.81 & 0.61 & \phantom{0}1.0\% & 92.80 & 29.99\\
+abl\_hothresh\_70             & 73.84 & 69.97 & 0.57 & \phantom{0}0.8\% & 92.60 & 22.63\\
+\textbf{abl\_hothresh\_80}    & \textbf{77.98} & \textbf{74.78} & 0.74 & \phantom{0}1.0\% & 92.77 & 17.99\\
+abl\_no\_contrast             & 63.28 & 60.02 & 0.87 & \phantom{0}1.4\% & 92.77 & 32.75\\
+abl\_no\_ground               & 72.53 & 69.64 & 0.50 & \phantom{0}0.7\% & 92.97 & 23.34\\
+abl\_no\_uncert               & 73.40 & 70.54 & 0.98 & \phantom{0}1.4\% & 93.17 & 22.63\\
+\textbf{abl\_no\_consist}     & \textbf{\phantom{0}3.60}  & \textbf{\phantom{0}2.79}  & 0.30 & \phantom{0}10.8\% & 88.80 & 86.01\\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\textbf{Distribution of induced-inversion contributions.} Across all
+$18$ cells: induced inversion has an absolute range of
+$[0.00, 1.31]$\,pp and a relative range of $[0.0\%, 13.2\%]$ of the
+corresponding IMG. The cell with the largest relative induced inversion
+is \texttt{v5\_0\_base} at $13.2\%$, with the smallest absolute IMG
+($1.28$\,pp); fractionally large because any flipping at all under
+masking is fractionally large at this scale. The cell with the largest
+absolute induced inversion is \texttt{v6\_0\_loo\_no\_padchest} at
+$1.31$\,pp ($3.1\%$ of IMG). No cell exceeds the pre-registered
+$\geq 30\%$ threshold.
+
+\textbf{The \texttt{abl\_no\_consist} cell is the cleanest
+disconfirmation of the pre-registered concern.} Removing the consistency
+loss collapses IMG\_correct from $\sim 70$\,pp (nominal v5 family) to
+$3.60$\,pp --- near baseline --- while \emph{simultaneously} reducing
+induced inversion from $\sim 0.7$\,pp to $0.30$\,pp. The pre-registered
+concern was that consistency-loss training \emph{caused} induced
+inversion. The empirical pattern is the opposite: with the consistency
+loss, IMG\_correct is high and induced inversion is small; without it,
+both are small.
+
+\section{Cross-Counterfactual Detail}
+\label{app:cross-cf}
+
+\begin{table*}[t]
+\centering
+\small
+\caption{\textbf{Cross-counterfactual eval --- full numbers including
+masked accuracy.} Each row uses the same \texttt{sft\_full} seed-42
+checkpoint; only the counterfactual transformation differs.}
+\label{tab:cross-cf-full}
+\setlength{\tabcolsep}{3.0pt}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Counterfactual} & \textbf{IMG} & \textbf{IMG\_corr} & \textbf{Acc full} & \textbf{Acc mask}\\
+\midrule
+\textbf{mean (TRAINED)} & 73.97 & 74.00 & 75.48 & \phantom{0}1.51\\
+noise                   & 62.10 & 62.20 & 75.48 & 13.38\\
+crop                    & \phantom{0}3.64 & \phantom{0}4.81 & 75.48 & 71.83\\
+occlude                 & \phantom{0}0.28 & \phantom{0}1.11 & 75.48 & 75.20\\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\textbf{Baseline anchor.} On the matching crop counterfactual,
+\texttt{sft\_only} seed-42 yields IMG $= 0.33$\,pp, IMG\_correct
+$= 2.80$\,pp at $73.82\%$ accuracy, induced inversion $= 0.26$\,pp
+($n = 105{,}921$ tokens). The cross-counterfactual \texttt{sft\_full}
+$-$ \texttt{sft\_only} IMG\_correct gap on crop is
+$4.81 - 2.80 = 2.01$\,pp; the gap on the trained-mean counterfactual is
+$74.00 - 2.38 = 71.62$\,pp. The order-of-magnitude difference between
+trained-mean and crop is the operational meaning of the partial-
+circularity finding.
+
+\section{Cross-Site Detail}
+\label{app:crosssite}
+
+\textbf{Silver target construction.} ChestX-Det10 test rows in the
+standard test set have empty \texttt{evidence\_text} fields. We
+constructed \texttt{groundbench\_test\_chestx\_det10\_silver.jsonl}
+($1{,}122$ rows) by injecting CheXagent-2-3B
+\citep{chen2024chexagent} generations as \texttt{reference\_report};
+the silver-target nature is reported explicitly. PadChest-GR cross-site
+\citep{castro2024padchestgr} requires a fresh CheXagent generation pass
+and is deferred. \textbf{Token-level analysis.} The cross-site $54.65\%$
+token-level accuracy is $20$\,pp lower than the in-distribution OpenI
+accuracy, reflecting (i) genuine cross-site difficulty (different
+camera vendors, different radiologist phrasing) and (ii) the silver-
+target nature (the model is being graded against another model's
+output, not radiologist gold).
+
+\section{Pre-Registered Hypotheses}
+\label{app:prereg}
+
+\textbf{(i) Full method reduces IMG\_correct on OpenI-test by
+$\geq 5$\,pp vs.\ SFT-only at matched accuracy.} Status:
+\textbf{HIT BY AN ORDER OF MAGNITUDE} on three seeds $\times$ three
+faith-loss configurations. Realised: $+72.58$\,pp at $+1.17$\,pp
+accuracy.
+
+\textbf{(ii) IMG\_correct refinement reveals $\geq 30\%$ of
+\texttt{v5\_3\_contrast}'s IMG as induced inversion.} Status:
+\textbf{REFUTED}. Realised: $1.1\%$. Pattern holds across all $18$
+audited cells (induced-inversion contributions $\leq 1.31$\,pp
+absolute, $\leq 13.2\%$ relative).
+
+\textbf{(iii) Dual filter dominates the faith loss in the ablation.}
+Status: \textbf{INVERTED}. The empirical pattern is the opposite:
+\texttt{sft\_dual} is statistically indistinguishable from
+\texttt{sft\_only}; the faith loss is the load-bearing component
+(\texttt{sft\_faith} alone gives $+71.73$\,pp over baseline). The
+increment from adding the dual filter on top of the faith loss is
+$+0.85$\,pp seed-mean (within one standard deviation of
+\texttt{sft\_full}). We retain the dual filter in the recipe because
+the four-cell decomposition (App.~\ref{app:filter}) demonstrates a
+symmetric-extension contribution axis not addressable by text-only
+filtering.
+
+One pre-registration HIT, one REFUTED, one INVERTED --- all reported
+transparently. The methodological refinement (IMG\_correct) lands as a
+contribution independently of the empirical results.
+
+\end{document}

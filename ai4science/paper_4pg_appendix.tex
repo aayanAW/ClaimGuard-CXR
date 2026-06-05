@@ -1,0 +1,261 @@
+%%%%%%%% ICML 2026 Workshop Submission (short / 4-page track) %%%%%%%
+%
+% Compatible with both AI4Science 2026 (4-8 pages main + unlimited
+% refs/appendix) and PhilML 2026 (4 content pages + unlimited refs
+% + supplementary).
+%
+% Uses the official ICML 2026 style; double-blind by default
+% (icml2026 strips author info unless [accepted] is set).
+% Style files (icml2026.sty / .bst / algorithm.sty / algorithmic.sty
+% / fancyhdr.sty) live alongside this .tex file; bibliography at
+% pivot_ab_references.bib.
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\documentclass{article}
+
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{hyperref}
+
+% Use the following line for the initial blind version submitted for review:
+\usepackage{icml2026}
+
+% For preprint, use:
+% \usepackage[preprint]{icml2026}
+%
+% If accepted, instead use the following line for the camera-ready submission:
+% \usepackage[accepted]{icml2026}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{mathtools}
+
+\usepackage[capitalize,noabbrev]{cleveref}
+
+% Running title for ICML page-headers (under 40 chars).
+\icmltitlerunning{Supplementary Material}
+
+\begin{document}
+
+\twocolumn[
+  \icmltitle{Supplementary Material for: \
+             Evidence-Blindness in Multimodal Medical Claim Verification: A Counterfactual Diagnostic and Training-Time Mitigation}
+
+  % Anonymous author block. The icml2026 style file auto-strips this
+  % in blind mode (i.e., unless [accepted] is set).
+  \begin{icmlauthorlist}
+    \icmlauthor{Anonymous Authors}{anon}
+  \end{icmlauthorlist}
+  \icmlaffiliation{anon}{Anonymous Institution}
+
+  \icmlcorrespondingauthor{Anonymous Authors}{anon@example.org}
+
+  \icmlkeywords{evidence-blindness, multimodal medical verification,
+                radiology report generation, counterfactual diagnostic,
+                hypothesis-only filter, conformal selection,
+                trustworthy AI}
+
+  \vskip 0.3in
+]
+
+\printAffiliationsAndNotice{}
+
+
+% Supplementary material companion document.
+% Contains the appendix sections of the main paper, with section
+% numbering reset to A, B, C, ... via \appendix.
+
+\appendix
+\onecolumn
+
+\section{Threshold Sensitivity for IMG and ESG}
+\label{app:thresholds}
+
+The body of the paper treats a verifier as evidence-blind if
+$\mathrm{IMG} < 5$\,pp or $\mathrm{ESG} < 5$\,pp. We chose the $5$\,pp
+threshold by sweeping $\{3, 5, 7, 10\}$\,pp on the validation split and
+selecting the operating point that maximally separated the v5.0 / v5.1
+baselines (whose IMG is $\sim 2$\,pp) from the v5.2 / v5.3 / v6.0
+configurations (whose IMG is $\geq 60$\,pp). The qualitative finding
+(``the highest-validation-accuracy configuration is evidence-blind'') is
+robust across all four thresholds tested. ESG is informative on this
+benchmark only as a coarse pass/fail signal because every trained
+configuration sits in the $[18.56, 21.13]$\,pp band; this is consistent
+with the dataset-dependence of partial-input gaps reported by
+\citet{poliak2018hypothesis}.
+
+\section{Training Hyperparameters}
+\label{app:training}
+
+\begin{table*}[t]
+\centering
+\small
+\caption{Training hyperparameters shared across all reported
+configurations. Per-configuration loss-weight settings are derived from
+Section~\ref{sec:methods}; full per-configuration YAML is in the
+released codebase.}
+\begin{tabular}{ll}
+\toprule
+Image backbone & BiomedCLIP ViT-B/16 (top 4 of 12 blocks trainable) \\
+Text backbone & RoBERTa-large (top 8 of 24 layers trainable) \\
+Shared dim / fusion layers & $d = 768$, $4$ cross-modal layers, $12$ heads \\
+Verdict head & 2-way softmax on a learned $[\mathrm{VERDICT}]$ token \\
+Support-score head & sigmoid scalar for conformal calibration \\
+Grounding head & $14 \times 14$ patch sigmoid map \\
+Optimizer & AdamW \\
+LR (encoders / heads) & $1\times 10^{-5}$ / $5\times 10^{-5}$ \\
+Weight decay & $0.01$ \\
+Warm-up / schedule & $500$-step linear warm-up, cosine decay to zero \\
+Batch size / grad accum & $32$ / $2$ \\
+Precision & bf16 \\
+HO-filter activation threshold & $0.7$ on $p_{\text{text}}^{\text{correct}}$ \\
+HO-filter $\mathcal{L}_{\mathrm{cls}}$ downweight & $0.2\times$ \\
+$\mathcal{L}_{\mathrm{consist}}$ margin & $0.2$ \\
+$\mathcal{L}_{\mathrm{contrast}}$ margin & $0.2$ \\
+$\mathcal{L}_{\mathrm{uncert}}$ MC-dropout rate / samples & $0.2$ / $5$ \\
+Random seed & $42$ (global) \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+The full composite loss is
+\begin{equation*}
+\mathcal{L} = \lambda_{\mathrm{cls}}\mathcal{L}_{\mathrm{cls}}
+              + \lambda_{\mathrm{ground}}\mathcal{L}_{\mathrm{ground}}
+              + \lambda_{\mathrm{consist}}\mathcal{L}_{\mathrm{consist}}
+              + \lambda_{\mathrm{contrast}}\mathcal{L}_{\mathrm{contrast}}
+              + \lambda_{\mathrm{uncert}}\mathcal{L}_{\mathrm{uncert}}
+\end{equation*}
+with $\lambda_{\mathrm{cls}} = 1.0$, $\lambda_{\mathrm{ground}} = 0.5$,
+$\lambda_{\mathrm{consist}} = 0.3$, $\lambda_{\mathrm{contrast}} = 0.3$,
+$\lambda_{\mathrm{uncert}} = 0.1$.
+
+\section{Loss-Drop Ablations}
+\label{app:ablations}
+
+We hold the v5.3 configuration fixed and remove one loss term at a time
+to identify the load-bearing components. Table~\ref{tab:ablations}
+reports IMG at the resulting test-time test split.
+
+\begin{table*}[t]
+\centering
+\small
+\caption{Single-component drop ablations on the v5.3 configuration. IMG
+collapses below the $5$\,pp evidence-blind threshold when either
+$\mathcal{L}_{\mathrm{consist}}$ or the HO filter is removed; removing
+the grounding, contrastive, or uncertainty terms each changes IMG by
+$< 5$\,pp.}
+\label{tab:ablations}
+\begin{tabular}{lr}
+\toprule
+\textbf{Variant of v5.3} & \textbf{IMG (pp)} \\
+\midrule
+Full v5.3 & $69.24$ \\
+$-\mathcal{L}_{\mathrm{consist}}$ (\emph{load-bearing}) & $\phantom{0}2.13$ \\
+$-$ HO filter (\emph{load-bearing}) & $\phantom{0}5.85$ \\
+$-\mathcal{L}_{\mathrm{ground}}$ & $66.10$ \\
+$-\mathcal{L}_{\mathrm{contrast}}$ & $63.28$ \\
+$-\mathcal{L}_{\mathrm{uncert}}$ & $73.40$ \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+The two interventions act on disjoint failure modes: the consistency
+loss penalises verdict-invariance under image masking (a per-example
+signal), and the HO filter downweights training rows the text-only model
+already solves (a row-reweighting signal). Both are required.
+
+\section{Benchmark Cohort and Silver-Label Protocol}
+\label{app:benchmark}
+
+\paragraph{Training cohort.} \textsc{GroundBench-v6}
+aggregates three public sources: OpenI \citep{demner2016openi} (US
+frontal radiographs with paired CheXbert-format reports), ChestX-Det10
+\citep{liu2020chestxdet} (US radiographs with pixel annotations over
+ten finding categories), and PadChest-GR \citep{castro2024padchestgr}
+(bilingual Spanish/English studies with per-sentence radiologist
+bounding boxes). Patient-stratified splits at $70/10/10/10$ via
+MD5-hash bucketing on the patient identifier yield $28{,}361$ training,
+$4{,}046$ validation, $4{,}046$ calibration, and $4{,}132$ test claims
+after filtering for resolved \textsc{sup}/\textsc{con} labels.
+
+\paragraph{Real-RRG silver labels.} For real-hallucination evaluation we
+generate findings-section reports from $500$ held-out OpenI studies
+using MAIRA-2 \citep{bannur2024maira2}, CheXagent-2-3B
+\citep{chen2024chexagent}, and MedGemma-4B-IT \citep{google2024medgemma}.
+Each generated report is decomposed into atomic claims; the three
+generators yield $2{,}707$ atomic claims after decomposition. We
+silver-label each claim with a three-LLM ensemble (a MIMIC-fine-tuned
+grader plus two MIMIC-free graders for leakage decoupling
+\citep{ostmeier2024green}) and report two-of-three majority labels.
+$1{,}599$ claims resolve to \textsc{sup}, $335$ to \textsc{con}, and
+$773$ to \textsc{uncertain}.
+
+\section{Field Audit: Per-Detector Numbers}
+\label{app:fieldaudit}
+
+\begin{table*}[t]
+\centering
+\small
+\caption{Zero-shot detectors on the $500$-claim real-RRG subset. RadFlag
+is a hallucination flagger that emits a binary stability score and is
+not input-conditioned; IMG/ESG do not apply (\textsc{n/a}).}
+\label{tab:baselines}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Detector} & \textbf{Acc} & \textbf{IMG (pp)} & \textbf{ESG (pp)} & \textbf{Blind?} \\
+\midrule
+BiomedCLIP (zero-shot)              & $0.538$ & $\phantom{0}8.0$  & $\phantom{0}0.0$  & yes \\
+MedGemma-4B-IT (as verifier)        & $0.758$ & $14.0$ & $\phantom{0}2.0$  & yes \\
+MAIRA-2 (as verifier)               & $0.498$ & $32.2$ & $\phantom{0}6.6$  & no  \\
+RadFlag (MAIRA-2, $K{=}6$)          & $0.664$ & \textsc{n/a}  & \textsc{n/a}  & \textsc{n/a} \\
+Ours (v6.0-retrain)                 & $0.911$ & $70.21$ & $20.01$ & no  \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+The combination of axes matters: a verifier can fail one axis without
+failing the other, and aggregate accuracy alone does not predict the
+joint outcome.
+
+\section{Inverted Conformal Selection Procedure}
+\label{app:conformal}
+
+We wrap each trained verifier in an inverted conformal Benjamini--
+Hochberg selection procedure calibrated against the support-score
+distribution of \textsc{con} claims on a held-out $4{,}046$-claim
+calibration split. The procedure follows the conformal-factuality
+template of \citet{mohri2024conformal} and the FDR-controlled selection
+template of \citet{gui2024conformal}. At target $\alpha = 0.10$, only
+v5.3-contrast produces a non-empty trusted set: $n_{\mathrm{green}} =
+985$ claims at achieved $\mathrm{FDR} = 0.91\%$ and power $39.6\%$. The
+v5.0, v5.1, and v5.2 configurations collapse to $n_{\mathrm{green}} =
+0$.
+
+The mechanism is joint-distribution-driven rather than marginal:
+the support-score distributions of v5.0 and v5.1 are not less sharp
+than v5.3 on the marginal axis, but they fail to separate \textsc{sup}
+from \textsc{con} along the score-label joint, so the calibration set's
+\textsc{con} scores cover the test set densely and Benjamini--Hochberg
+finds no cutoff at $\alpha = 0.10$. This is the empirical statement of
+the discussion-section claim that ``conformal selection on an
+evidence-blind verifier has nothing to certify.''
+
+\section{Reproducibility Checklist}
+\label{app:repro}
+
+\textbf{Met:} (i) Training data sources are public (OpenI, ChestX-Det10,
+PadChest-GR); MIMIC-CXR is not used. (ii) Patient-stratified
+$70/10/10/10$ splits via MD5-hash bucketing on patient identifier. (iii)
+Hyperparameters in Appendix~\ref{app:training}; per-configuration YAML
+in the released codebase. (iv) Modal H100 80\,GB; bf16 mixed precision.
+
+\textbf{Deferred to extended version:} model and code release URLs
+(anonymized for double-blind review, filled at camera-ready); multi-seed
+replication; PadChest-GR claim-extraction for full three-site training.
+
+\end{document}
