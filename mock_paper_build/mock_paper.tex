@@ -1,0 +1,234 @@
+\documentclass[11pt]{article}
+
+\usepackage[letterpaper,margin=1in]{geometry}
+\usepackage{times}
+\usepackage{microtype}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{url}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{titling}
+\usepackage{fancyhdr}
+\usepackage{lastpage}
+\usepackage{authblk}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=black,
+  citecolor=blue!50!black,
+  urlcolor=blue!50!black,
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0.4pt}
+\fancyfoot[C]{\small\textcolor{red!70!black}{\textbf{MOCK MANUSCRIPT DRAFT}} --- not for submission --- page \thepage\ of \pageref{LastPage}}
+
+\setlength{\droptitle}{-0.5in}
+
+\title{\vspace{-0.3in}Evidence-Blindness in Multimodal Medical Claim Verification:\\ A Diagnostic Framework and Training-Time Mitigation}
+
+\author{Aayan Alwani\thanks{Great Neck South High School, New York; Laughney Laboratory, Weill Cornell Medicine. Correspondence: \href{mailto:alwaniaayan6@gmail.com}{\texttt{alwaniaayan6@gmail.com}}.}}
+
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\vspace{-0.35in}
+\begin{center}
+\fcolorbox{red!70!black}{red!5}{\parbox{0.95\textwidth}{\centering\small
+\textbf{MOCK MANUSCRIPT DRAFT --- NOT FOR SUBMISSION}\\
+Illustrative scope and framing. All empirical results marked \texttt{[pending experiments]} are unresolved; they will be populated only by real training runs. Numerical claims in this draft are structural placeholders, not measurements.
+}}
+\end{center}
+\vspace{0.1in}
+
+\begin{abstract}
+Multimodal verifiers are increasingly used as a safety layer over generative models for medical imaging. Their stated role is to check, claim-by-claim, whether a statement about an image --- a finding in a draft radiology report, an answer from a visual question answering system, an assertion in a clinical copilot --- is supported by the image. Recent verifiers report strong aggregate numbers on this task, and the field has begun to treat them as reliable gates. We argue that this confidence is premature. A verifier that reaches high accuracy without meaningfully using the image is indistinguishable, on aggregate metrics, from one that genuinely grounds its decisions in pixel evidence, yet the two systems are not equivalent for clinical use. We formalize this concern as \emph{evidence-blindness} and give it an operational test: three counterfactual interventions (image masking, evidence shuffling, image perturbation) yield three diagnostic gaps that can be computed on any multimodal verifier, including closed-weight API systems. On a public chest-radiograph benchmark assembled from OpenI and ChestX-Det10 we evaluate eight contemporary verifiers --- three commercial generalists, three medical-specialist vision-language models, one zero-shot retriever, and our own unmitigated baseline --- and find that evidence-blindness is the rule rather than the exception. We then introduce an adversarial training intervention that downweights examples solvable without the image; the intervention measurably reduces each diagnostic gap while preserving overall verification accuracy. Our contribution is the diagnostic, not a leaderboard number. We release the benchmark, the counterfactual metrics, the trained weights, and a reproducible Modal pipeline.
+\end{abstract}
+
+\section{Introduction}
+
+Radiology report generation models hallucinate findings that are not visible in the image at rates variously reported between eight and fifteen percent under standard decoding settings~\cite{radflag,rextrust}. As these systems move from research artifacts toward drafting tools that sit upstream of a radiologist's review queue, a second line of defense has become standard: \emph{claim-level verifiers} that decompose a generated report into atomic factual claims and check each one against the image and retrieved prior reports. The recent literature reports verifiers with AUROC above ninety percent on aggregate hallucination-detection benchmarks, and the framing has shifted from ``does claim verification work at all'' to ``which conformal guarantee should wrap it.''
+
+We think the field has moved too quickly. A verifier that looks correct on an aggregate test set may be correct for the wrong reason. Aggregate accuracy cannot distinguish a system that uses the image from one that is solving the task via textual shortcuts in the claim or in the retrieved evidence --- shortcuts that happen to correlate with the label on the test distribution but break under the exact shifts (adversarial generators, distribution drift across sites, images with unusual findings) that motivate using a verifier in the first place. The question ``does this verifier actually use the image'' is not a corollary to aggregate accuracy. It is a separate property, and no one is reporting it.
+
+This pattern is not new. The natural language inference community went through the same discovery with partial-input baselines: hypothesis-only classifiers recovered much of the apparent performance of full premise-hypothesis entailment models, which forced a reassessment of what the benchmarks were actually measuring~\cite{gururangan2018annotation,poliak2018hypothesis}. An analogous diagnostic for multimodal medical verification has not been systematically developed, despite the stakes being substantially higher: a radiology report gate that silently ignores the image will pass exactly the claims it should flag.
+
+We make three contributions.
+
+First, we give evidence-blindness a testable definition. Three counterfactual metrics --- image-masking gap (IMG), evidence-shuffling gap (ESG), and image-perturbation gap (IPG) --- measure whether the verifier's predictions respond to interventions on the image, on the pairing between claim and evidence, and on the spatial arrangement of image content. All three apply equally to open-weight models and to closed-weight APIs, require no access to model internals, and are cheap to compute.
+
+Second, we apply the diagnostic across the current landscape. Eight verifiers --- GPT-4o, Claude~3.5~Sonnet, Gemini~1.5~Pro, CheXagent, LLaVA-Med, MedVLM, BiomedCLIP zero-shot, and a re-trained unmitigated baseline --- receive the same three interventions on the same test set. \texttt{[pending experiments]}. We expect the pattern documented in the NLI literature to reappear: aggregate accuracy that masks systematically low counterfactual sensitivity.
+
+Third, we introduce an adversarial hypothesis-only filter that targets the training distribution directly. A text-only classifier learns which training examples are solvable without the image; those examples are downweighted during multimodal training. The intuition is that training signal on text-solvable examples teaches the model a textual shortcut rather than image grounding. The intervention reduces each of the three diagnostic gaps while holding overall accuracy.
+
+We do not claim state-of-the-art per-finding performance. Some claim categories remain partially evidence-blind after mitigation --- laterality discrimination and device-related claims most notably --- and we report those residuals directly in Section~\ref{sec:limitations}. Those residuals are part of the paper's contribution: they demonstrate that evidence-blindness is not a single bug with a single fix but a structural property that closes only partly under training-distribution interventions.
+
+\section{Related Work}
+
+\paragraph{Hallucination detection in radiology.} Recent approaches fall into three styles. Sampling-based methods flag inconsistent claims via self-agreement across multiple generations. Internal-state methods score per-finding hallucination risk from hidden representations of the generating model. Process reward models score atomic claims under retrieval-augmented context and improve over internal-state methods on aggregate benchmarks. Each of these systems reports competitive aggregate accuracy; none report whether the claim-level decision depends on the image. Our diagnostic applies directly to all three styles and is agnostic to the underlying detection approach.
+
+\paragraph{Conformal trust selection.} Conformal methods provide distribution-free error control over classifier outputs. Recent work has extended conformal selection to the claim level for radiology and to the token level for language-model outputs more broadly~\cite{mohri2024language,angelopoulos2021gentle}. These methods take the underlying verifier as given. A conformal guarantee built on an evidence-blind verifier inherits the blindness: the selection procedure will correctly control marginal false discovery rate with respect to the labels the verifier produces, which is not the same as controlling error with respect to image evidence. We view conformal selection as complementary to, not a substitute for, grounding diagnostics.
+
+\paragraph{Partial-input baselines and shortcut learning.} The hypothesis-only baselines introduced for NLI~\cite{gururangan2018annotation,poliak2018hypothesis} demonstrated that much of the apparent performance of premise-hypothesis models could be recovered from the hypothesis alone. Analogous shortcut learning has been documented in visual question answering, reading comprehension, and referring-expression grounding. Our diagnostic is a direct adaptation of this methodology to multimodal medical verification, with two extensions: an evidence-shuffling metric appropriate for retrieval-augmented verifiers and an image-perturbation metric that tests spatial sensitivity specifically.
+
+\paragraph{Distribution-free error control under shift.} Weighted conformal inference handles known covariate shift~\cite{tibshirani2019conformal}; doubly-robust procedures handle covariate shift with estimated likelihood ratios. We use both in our conformal experiments to guard against the site-level shift between OpenI and ChestX-Det10.
+
+\section{Method}
+
+\subsection{Diagnostic framework}
+
+Let $f: (x_{\text{img}}, x_{\text{claim}}, x_{\text{evid}}) \to y \in \{\texttt{SUPPORTED}, \texttt{CONTRADICTED}\}$ denote a multimodal verifier that takes an image, a claim about the image, and retrieved evidence text, and returns a binary verdict. We say $f$ is \emph{evidence-blind} when its output distribution is approximately invariant under interventions that preserve only the textual inputs. Three counterfactual metrics operationalize this.
+
+\paragraph{Image-masking gap (IMG).} $\text{IMG}(f) = \text{acc}(f, \mathcal{D}) - \text{acc}(f, \mathcal{D}^{\text{img}=0})$, where $\mathcal{D}^{\text{img}=0}$ replaces every image with a zero tensor of matching shape. A verifier that does not use the image has IMG near zero.
+
+\paragraph{Evidence-shuffling gap (ESG).} $\text{ESG}(f) = \text{acc}(f, \mathcal{D}) - \text{acc}(f, \mathcal{D}^{\text{evid}=\pi})$, where $\pi$ is a random derangement of evidence across claims within each batch (so no claim is paired with its true evidence, and the text distribution is otherwise preserved). A verifier that uses evidence meaningfully sees accuracy collapse under shuffling.
+
+\paragraph{Image-perturbation gap (IPG).} $\text{IPG}(f) = \text{acc}(f, \mathcal{D}_{\text{lat}}) - \text{acc}(f, \mathcal{D}_{\text{lat}}^{\text{hflip}})$, where $\mathcal{D}_{\text{lat}}$ is the subset of test claims whose truth depends on laterality (``right lower lobe,'' ``left hemithorax'') and the horizontal flip is applied only to the image. A verifier that encodes laterality from image structure sees accuracy drop; one that encodes laterality only from text cues does not.
+
+We call $f$ \emph{evidence-blind} if $\text{IMG} < 5\text{pp}$ or $\text{ESG} < 5\text{pp}$. The threshold is calibrated against two control experiments described in Section~\ref{sec:threshold}.
+
+\subsection{Image-grounded verifier}
+
+Our architecture follows a dual-encoder pattern with cross-modal fusion. Images at $224 \times 224$ resolution pass through BiomedCLIP ViT-B/16~\cite{biomedclip}; the top four transformer blocks are trainable while the bottom eight remain frozen. A two-layer residual MLP adapts the frozen encoder's PMC-OA representation to chest-radiograph statistics. Claim and evidence are tokenized jointly through RoBERTa-large via the standard text-pair API, which inserts the proper sentence-separator special tokens; the top eight RoBERTa layers are trainable. Both modalities project to a shared dimensionality of 768 and concatenate along the sequence axis, with a learnable verdict token prepended. Four layers of bidirectional cross-modal transformer sit on top of the concatenation. Three output heads attach to the fused representation: a binary verdict head, a support-score head whose sigmoid output feeds the conformal stage, and a per-patch grounding head that predicts a $14 \times 14$ binary mask over the image tokens. The full model has approximately 480M parameters, of which about 122M are trainable; training runs on a single H100 at batch 32 with gradient accumulation.
+
+\subsection{Training objective}
+
+The multi-objective loss combines five terms. The classification loss is standard cross-entropy over the verdict. The grounding loss is binary cross-entropy on the $14 \times 14$ patch map, applied only to rows whose source dataset provides pixel-level ground truth. The consistency loss is a margin penalty on the gap between the verifier's prediction under the full input and its prediction with the image zeroed; it directly optimizes the signal the IMG metric measures. The contrastive evidence loss is a margin penalty between the support score of a supported claim paired with its matched evidence and the same claim paired with shuffled evidence; it directly optimizes the signal the ESG metric measures. The calibration loss uses true Monte-Carlo dropout samples to regularize the distance between predictive confidence and empirical correctness. Each term is gated by a nonzero loss weight that can be ablated independently.
+
+Two of the five losses therefore target the diagnostic metrics by construction. This is intentional: if a training procedure that reduces the diagnostic gap during training fails to reduce it on held-out data, the metric is capturing something the consistency and contrastive losses cannot directly optimize --- which is exactly the property we want to establish.
+
+\subsection{Adversarial hypothesis-only filtering}
+\label{sec:ho-filter}
+
+Our mitigation targets the training distribution rather than the architecture. We train a RoBERTa-large classifier for one epoch on the text-only pair $(x_{\text{claim}}, x_{\text{evid}}) \to y$ --- no image. This hypothesis-only model learns exactly the textual shortcuts that are present in the training set. Every training example is then scored under this model; examples for which the hypothesis-only model assigns high confidence ($\geq 0.7$ by default) to the true label are flagged. During multimodal training, flagged examples are downweighted in the classification loss to a fraction $w = 0.2$ of their original contribution. The grounding, consistency, contrastive, and calibration losses remain at full weight on those examples: we want the model to learn image grounding on them, even though their classification signal is polluted by textual shortcut.
+
+The hypothesis-only filter is computed once per benchmark and cached as a per-row weight manifest. All v5 training configurations that activate the filter read from this manifest, so the cost of the filter is amortized across the training ladder rather than recomputed per configuration.
+
+\section{Benchmark}
+
+We assemble the benchmark from two non-credentialed public sources. OpenI~\cite{openi} provides approximately 4,000 chest radiographs with paired reports and a smaller set of bounding-box annotations. ChestX-Det10~\cite{chestxdet10} provides approximately 3,500 chest radiographs with dense pixel-level annotations across ten finding categories and no associated reports. For report-bearing OpenI rows, claims are extracted via an LLM claim extractor with a rule-based parser fallback; each claim resolves to a structured tuple (finding, location, laterality, severity, certainty, polarity). For ChestX-Det10, claims are synthesized deterministically from the pixel annotations. Each annotation produces a positive-assertion claim labeled \texttt{SUPPORTED}. Each image additionally produces two auxiliary claims: a negative-assertion claim about a finding absent on the image (labeled \texttt{SUPPORTED} because the negation is true), and a positive-assertion claim about a different absent finding (labeled \texttt{CONTRADICTED}). This construction guarantees ground truth by construction, without requiring a secondary annotator.
+
+All text passes through a PII scrubber (Presidio combined with chest-radiograph-specific regular expressions) before any downstream processing. Splits are patient-stratified into training, validation, calibration, and test folds in a 70/10/10/10 proportion. The calibration split is reserved exclusively for conformal calibration and is kept disjoint from the validation split used for early stopping, so the conformal exchangeability assumption is not broken by model-selection leakage. CheXpert Plus reports are additionally loaded as a pool of unpaired evidence passages for retrieval during verification, but do not contribute paired training claims because the CheXpert Plus image archive is not included in this release.
+
+\section{Experiments}
+
+\subsection{Baselines}
+
+We evaluate eight multimodal systems. Three are commercial generalists accessed via API: GPT-4o, Claude~3.5~Sonnet, Gemini~1.5~Pro. Three are open-weight medical-specialist vision-language models run locally on H100: CheXagent-8b, LLaVA-Med-v1.5-7b, MedVLM-v0.1. One is a zero-shot cross-modal retriever (BiomedCLIP) evaluated via nearest-neighbor scoring. The eighth is our own verifier trained without the adversarial hypothesis-only filter, included to isolate the filter's contribution against an otherwise identical architecture. Each baseline is evaluated under four conditions: standard, image-zeroed (grey placeholder for API baselines), evidence-shuffled, and horizontal-flipped on the laterality-sensitive subset.
+
+\subsection{Headline result}
+
+The headline question is whether the diagnostic identifies evidence-blindness as a property of the field rather than of any single architecture. Under our definition ($\text{IMG} < 5\text{pp}$ or $\text{ESG} < 5\text{pp}$), \texttt{[pending experiments]}. We expect the result to show evidence-blindness as pervasive across baselines and materially reduced in the mitigated model.
+
+\subsection{Threshold calibration}
+\label{sec:threshold}
+
+The 5-percentage-point threshold is calibrated against two controls. A text-only model with no image input gives an empirical lower bound on IMG --- any apparent gap it produces reflects batch noise rather than image use. A hypothetical image-only model with no text input gives an upper bound on ESG. Results are reported in the supplementary materials. Sensitivity of conclusions to threshold choice is reported for thresholds in $\{3, 5, 7, 10\}$~pp.
+
+\subsection{Per-category breakdown}
+
+Aggregate metrics mask category-level variation, and the paper's central claim would be weakened by presenting only aggregate numbers. We report IMG and ESG separately for each of six pathology families (consolidation, pleural, lung parenchymal, cardiac, device, foreign object) and for claims that turn on laterality specifically. \texttt{[pending experiments]}. Our prior expectation is that the consolidation, pleural, and lung families will show substantial mitigation, while laterality-turning claims and device-related claims will remain partially evidence-blind after mitigation. Section~\ref{sec:limitations} discusses the interpretation of residual evidence-blindness in these categories.
+
+\subsection{Ablations}
+
+We report three ablations. First, each of the five loss terms is removed in turn while the others are held fixed, and the effect on both aggregate accuracy and the three diagnostic metrics is measured. Second, the hypothesis-only confidence threshold is varied across $\{0.5, 0.6, 0.7, 0.8, 0.9\}$ to characterize the sensitivity of the mitigation to the filter's strength. Third, we train on one source site and evaluate on the other (OpenI$\to$ChestX-Det10 and vice versa) to isolate cross-site generalization from cross-finding generalization. \texttt{[pending experiments]}.
+
+\subsection{Conformal false discovery rate}
+
+Three conformal procedures are compared: inverted conformal Benjamini-Hochberg, weighted conformal BH~\cite{tibshirani2019conformal} with per-site weighting, and a doubly-robust variant with estimated likelihood ratios. Target $\alpha \in \{0.05, 0.10, 0.20\}$. We report the achieved false discovery rate, the power (recall on supported claims), and the group-wise FDR per finding and per site. \texttt{[pending experiments]}.
+
+\section{Limitations and Open Problems}
+\label{sec:limitations}
+
+We are explicit about what this work does and does not establish.
+
+The benchmark is compact. At approximately 7{,}500 images drawn from two public sources, it is sufficient to demonstrate evidence-blindness and to evaluate the mitigation at statistical scale, but it is smaller than datasets used in most aggregate-leaderboard-focused radiology papers. We view this tradeoff as appropriate for a diagnostic contribution: a small, well-curated, fully public benchmark permits exact reproduction and extension, which matters more for the question we ask than scale does. What it limits is the external validity of any aggregate accuracy number we report. The paper does not claim state-of-the-art per-finding classification.
+
+Second, the evidence-blindness mitigation is more effective on some claim categories than others. Laterality-turning claims and claims about support devices and foreign objects remain partially evidence-blind after mitigation; the per-category table makes this directly visible rather than averaging it into an aggregate. We interpret these residuals as the expected behavior of a training-distribution intervention that cannot reach architectural aspects of the verifier. Textual shortcuts associated with laterality and device identity are harder to break because the necessary image features --- fine spatial structure for laterality, small high-frequency detail for devices --- are themselves harder for a frozen-bottom image encoder to resolve. The residuals define a natural next step: architectural interventions that train the image encoder end-to-end with laterality-sensitive and fine-structure-sensitive objectives, which is out of scope for the present paper. We view the visibility of these residuals as a strength of the diagnostic rather than a weakness of the method. Aggregate metrics would hide exactly this information.
+
+Third, the benchmark uses pre-existing radiologist annotations from the source datasets but does not incorporate fresh expert review. Claim-to-annotation matching is automated via an ontology and intersection-over-union thresholding; a self-reviewed sample of 500 claim-annotation matches is provided with a published protocol as a reliability baseline. We do not make clinical deployability claims and do not draw safety-relevant conclusions about downstream use.
+
+Fourth, the current release is English-only. Multilingual evaluation --- including Spanish reports from PadChest, Portuguese reports from BRAX, and Vietnamese from VinDr --- is deferred to a future release that depends on either additional public sources or a credentialing arrangement.
+
+\section{Conclusion}
+
+Evidence-blindness is a measurable property of multimodal medical claim verifiers, not an artifact of any specific architecture. The diagnostic framework reported here gives a cheap, model-agnostic procedure for detecting it. The adversarial hypothesis-only filter reduces it substantially on categories where image evidence and textual shortcuts can be cleanly separated, and partially on categories where they cannot. The categories where mitigation succeeds establish that training-distribution intervention is a real and cheap lever. The categories where it does not establish an agenda for architectural follow-on work. We recommend that counterfactual evidence-sensitivity testing be adopted as a default check on multimodal medical AI systems before any safety-relevant deployment claim is made on them, and we release the benchmark, diagnostic metrics, training code, and model weights to make that check straightforward for other groups to perform.
+
+\section*{Availability}
+
+Code, model weights, benchmark JSONL manifests, and evaluation harness will be released at the project repository on acceptance under a CC BY-NC 4.0 license (the most restrictive license among the source datasets). Reproduction instructions are provided as a Modal recipe; every entrypoint runs on a single H100 instance.
+
+\section*{Acknowledgments}
+
+The author thanks Dr.\ Ashley Laughney (Weill Cornell Medicine) for supervision and for laboratory access.
+
+\begin{thebibliography}{99}
+\footnotesize
+
+\bibitem{gururangan2018annotation}
+Suchin Gururangan, Swabha Swayamdipta, Omer Levy, Roy Schwartz, Samuel R.\ Bowman, and Noah A.\ Smith.
+\newblock Annotation artifacts in natural language inference data.
+\newblock In \emph{NAACL-HLT}, 2018.
+
+\bibitem{poliak2018hypothesis}
+Adam Poliak, Jason Naradowsky, Aparajita Haldar, Rachel Rudinger, and Benjamin Van Durme.
+\newblock Hypothesis only baselines in natural language inference.
+\newblock In \emph{*SEM}, 2018.
+
+\bibitem{tibshirani2019conformal}
+Ryan J.\ Tibshirani, Rina Foygel Barber, Emmanuel J.\ Cand\`es, and Aaditya Ramdas.
+\newblock Conformal prediction under covariate shift.
+\newblock In \emph{NeurIPS}, 2019.
+
+\bibitem{angelopoulos2021gentle}
+Anastasios N.\ Angelopoulos and Stephen Bates.
+\newblock A gentle introduction to conformal prediction and distribution-free uncertainty quantification.
+\newblock \emph{arXiv preprint arXiv:2107.07511}, 2021.
+
+\bibitem{mohri2024language}
+Christopher Mohri and Tatsunori Hashimoto.
+\newblock Language models with conformal factuality guarantees.
+\newblock In \emph{ICML}, 2024.
+
+\bibitem{biomedclip}
+Sheng Zhang, Yanbo Xu, Naoto Usuyama, Jaspreet Bagga, Robert Tinn, Sam Preston, Rajesh Rao, Mu Wei, Naveen Valluri, Cliff Wong, Matthew Lungren, Tristan Naumann, and Hoifung Poon.
+\newblock Large-scale domain-specific pretraining for biomedical vision-language processing.
+\newblock \emph{arXiv preprint arXiv:2303.00915}, 2023.
+
+\bibitem{openi}
+Dina Demner-Fushman et~al.
+\newblock Preparing a collection of radiology examinations for distribution and retrieval.
+\newblock \emph{JAMIA}, 23(2):304--310, 2016.
+
+\bibitem{chestxdet10}
+Jingyu Liu, Jie Lian, and Yizhou Yu.
+\newblock ChestX-Det10: Chest X-ray dataset on detection of thoracic abnormalities.
+\newblock \emph{arXiv preprint arXiv:2006.10550}, 2020.
+
+\bibitem{radflag}
+\textit{[citation to verify]} Sampling-based hallucination flagging for radiology report generation.
+\newblock ML4H proceedings, 2025.
+
+\bibitem{rextrust}
+\textit{[citation to verify]} Internal-state hallucination risk scoring for radiology LVLMs.
+\newblock AAAI Bridge proceedings, 2025.
+
+\end{thebibliography}
+
+\begin{center}
+\vspace{0.2in}
+\fcolorbox{red!70!black}{red!5}{\parbox{0.95\textwidth}{\centering\small
+\textbf{END OF MOCK MANUSCRIPT DRAFT}\\
+All \texttt{[pending experiments]} markers represent experiments that have not been run. Every numeric claim in this draft is a structural placeholder. Citations marked \textit{[citation to verify]} are paper-name guesses that must be replaced with verified references before any submission.
+}}
+\end{center}
+
+\end{document}

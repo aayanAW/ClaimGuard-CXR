@@ -1,0 +1,87 @@
+\documentclass[12pt,letterpaper]{article}
+
+% Match the sample: 12pt Times New Roman, ~1in margins, double-spaced body
+\usepackage[letterpaper, top=1in, bottom=1in, left=1in, right=1in]{geometry}
+\usepackage{mathptmx} % Times New Roman
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{setspace}
+\usepackage{parskip}
+\usepackage{indentfirst}
+\usepackage[hidelinks]{hyperref}
+
+% Hanging indent for Works Cited entries (MLA style)
+\usepackage{hanging}
+
+% Tighten title block spacing
+\usepackage{titling}
+\setlength{\droptitle}{-3em}
+
+\setlength{\parindent}{0.5in}
+\setlength{\parskip}{0pt}
+\onehalfspacing
+
+\begin{document}
+
+% --- Header block (matches sample: Name / Competition / Date, left-aligned) ---
+\noindent
+Aayan Alwani \& Ethan Wang\\
+High School Health Research Challenge\\
+1 May 2026
+
+\vspace{1em}
+
+% --- Centered italicized title (matches sample) ---
+\begin{center}
+\textit{Audit the Bots Before You Trust Them: A Teen-Led Protocol for Verifying AI in Our Hospitals}
+\end{center}
+
+\vspace{0.5em}
+
+% --- Body ---
+Hospitals, scanners, and the diagnostic systems running inside them are part of every community's built environment. They are physical infrastructure as much as housing or transit, and like the rest of the built environment they are now under climate stress. Wildfire smoke, extreme heat, flooding, and the patient migrations that follow these events are pushing hospitals, especially smaller and lower-resourced ones, into a near-permanent surge state. To keep up, more of them are deploying artificial intelligence (AI) tools that read chest X-rays, draft radiology reports, and flag urgent conditions before a human doctor reviews the case (Bannur et al.\ 2024). Climate change is reshaping who walks through the hospital door: rural clinics, low-income urban hospitals, and the ones absorbing climate-displaced patients are leaning on these tools the most.
+
+The problem is structural and it tracks the geography of climate vulnerability. Almost every AI radiology tool in clinical use was trained at a well-resourced research hospital, on imaging data from that hospital's own patients. When the same tool is deployed somewhere else, the new hospital usually has different scanners, different demographics, and reports written in a different language. Performance drops, often without anyone noticing. A 2018 study showed that an AI pneumonia detector trained at one U.S.\ hospital performed significantly worse when tested at a different one (Zech et al.\ 2018). Across institutions and patient populations, the gap widens further (Pooch et al.\ 2020). The hospitals most exposed to climate-driven patient surges, heat illness, smoke inhalation, flood injuries, and the chronic conditions that follow displacement, are also the ones least equipped to check whether the AI in their building actually works on the patients now showing up in their emergency department.
+
+Current solutions do not close this gap. Hospitals usually decide to deploy an AI tool based on the accuracy numbers in the original research paper, often over 90\% on standard benchmarks. But aggregate accuracy can hide a serious failure. An AI system can score above 90\% on a chest X-ray benchmark without ever looking at the image, by exploiting patterns in the report text instead. In our own work, the AI verifier with the highest accuracy turned out to be completely image-blind. We replaced every image with a blank, and accuracy dropped by only 2 percentage points. The headline number was excellent. The medicine was not happening. Newer safety wrappers like conformal trust-selection (Mohri and Hashimoto 2024) do not fix this either, because they wrap a guarantee around whatever the underlying AI outputs, even when the AI never used the X-ray.
+
+We propose ClaimGuard, a free, open audit protocol any hospital can run to check whether an AI radiology tool is using the medical image at all. It works on the same laptop a small clinic already has, and it runs both before deployment and during it. ClaimGuard has two parts.
+
+The first part is a three-step diagnostic. The image test (IMG) replaces the X-ray with a blank image and measures how much accuracy drops. If accuracy barely changes, the AI was not using the image. The evidence test (ESG) shuffles the supporting text across patients and measures the same drop. If the drop is small, the AI is ignoring the patient's record. The side-flip test (IPG) flips the X-ray left-to-right on cases where left-right anatomy matters, like a one-sided pneumothorax, and measures the drop again. A small drop here means the AI is ignoring the spatial layout of the image. The three tests cost almost nothing, take a handful of extra computer runs per case, and work on closed commercial AI tools, since the hospital only has to change the inputs and read off the outputs.
+
+The second part is a deployment alarm built for the climate era. The hospital re-runs the three tests every so often on its actual production traffic. If one of the gaps suddenly collapses, for instance after a wildfire, flood, or heatwave reshapes the patient mix arriving at the hospital, the AI has lost grounding on populations its training data never saw. The hospital learns about it before any patient is harmed, and the alarm signal travels with the same disasters that triggered it.
+
+ClaimGuard is realistic for teenagers to build and spread. The audit can be written in roughly 200 lines of open-source Python and run on a laptop. A team of high schoolers, especially those in CS or health equity clubs, can package the protocol with plain-language documentation, partner with student-led health nonprofits, and offer it for free to community clinics and teaching hospitals in their region. The Pioneer in Health Research seed money would cover a pilot at five sites, including outreach materials translated into Spanish and other languages spoken in underserved patient populations. A public registry, with notes on which AI tools have been verified on which populations, would work like a consumer-report layer for hospital AI, maintained by students who care whether the tools work for the communities they serve.
+
+Climate change is pushing more hospitals to rely on AI in the same places where verification capacity is thinnest, and the same places climate disasters are most likely to hit. Healthcare's built environment is no longer just the building, the imaging machines, and the bed count. It now includes the AI tools running inside, and those tools decide who gets safe care and who does not as the patient mix changes around them. ClaimGuard is a cheap, teen-built check on that environment, so the AI in our hospitals is not just accurate on a paper benchmark but accurate for the patients climate change is putting in front of it.
+
+\vspace{1em}
+
+% --- Works Cited (centered heading + hanging indent, MLA style) ---
+\begin{center}
+Works Cited
+\end{center}
+
+\begin{hangparas}{0.5in}{1}
+Bannur, Shruthi, et al.\ ``MAIRA-2: Grounded Radiology Report Generation.'' \textit{arXiv}, 6 June 2024, \url{arxiv.org/abs/2406.04449}. Accessed 1 May 2026.
+\end{hangparas}
+
+\vspace{0.5em}
+
+\begin{hangparas}{0.5in}{1}
+Mohri, Christopher, and Tatsunori Hashimoto. ``Language Models with Conformal Factuality Guarantees.'' \textit{Proceedings of the 41st International Conference on Machine Learning (ICML)}, 2024, \url{arxiv.org/abs/2402.10978}. Accessed 1 May 2026.
+\end{hangparas}
+
+\vspace{0.5em}
+
+\begin{hangparas}{0.5in}{1}
+Pooch, Eduardo H.\ P., et al.\ ``Can We Trust Deep Learning Based Diagnosis? The Impact of Domain Shift in Chest Radiograph Classification.'' \textit{Thoracic Image Analysis Workshop, Medical Image Computing and Computer Assisted Intervention (MICCAI)}, 2020, \url{arxiv.org/abs/1909.01940}. Accessed 1 May 2026.
+\end{hangparas}
+
+\vspace{0.5em}
+
+\begin{hangparas}{0.5in}{1}
+Zech, John R., et al.\ ``Variable Generalization Performance of a Deep Learning Model to Detect Pneumonia in Chest Radiographs: A Cross-Sectional Study.'' \textit{PLOS Medicine}, vol.\ 15, no.\ 11, 6 Nov.\ 2018, e1002683, \url{journals.plos.org/plosmedicine/article?id=10.1371/journal.pmed.1002683}. Accessed 1 May 2026.
+\end{hangparas}
+
+\end{document}
