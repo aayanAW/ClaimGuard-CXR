@@ -75,3 +75,41 @@ figures/*.pdf
 # *.png, *.jpg, *.dcm, *.ipynb) so removing the directory rules is
 # safe and lets Python source under these paths flow into git.
 checkpoints/
+
+# Node
+node_modules/
+
+# R
+.Rhistory
+
+# LaTeX build artifacts (keep .tex/.sty/.bst/.bib sources)
+*.aux
+*.bbl
+*.blg
+*.out
+*.toc
+*.lof
+*.lot
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+
+# Office binaries / lock files (derived from the markdown sources)
+*.docx
+~$*
+
+# Internal working notes (handoffs, wakeups, status, execution logs, plans)
+HANDOFF_*.md
+WAKEUP_*.md
+*_STATUS.md
+*_STATUS_*.md
+*_EXECUTION_LOG.md
+*_RESUME_PROMPT.md
+*_RUNBOOK.md
+*_RUNBOOK_*.md
+RUNBOOK_*.md
+PIVOT_*_PLAN.md
+PIVOT_PLAN_*.md
+PIVOT_D_*.md
+PLAN_V6_*.md
+progress.md
