@@ -109,12 +109,37 @@ class ImageGroundedVerifier(nn.Module):
         self.cfg = cfg
 
         # --- image backbone ------------------------------------------------
-        self.image_encoder = AutoModel.from_pretrained(
-            cfg.image_backbone,
-            revision=cfg.image_backbone_revision,
-            trust_remote_code=True,
-        )
-        img_hidden = getattr(self.image_encoder.config, "hidden_size", None) or 768
+        # BiomedCLIP is distributed as an open_clip checkpoint (no config.json),
+        # so AutoModel.from_pretrained fails. Fall back to open_clip in that case
+        # and expose a HF-compatible interface (forward returns an object with
+        # last_hidden_state of shape (B, 1+P, D) matching CLIPVisionModel).
+        self._image_backend: str  # "hf" or "open_clip"
+        try:
+            self.image_encoder = AutoModel.from_pretrained(
+                cfg.image_backbone,
+                revision=cfg.image_backbone_revision,
+                trust_remote_code=True,
+            )
+            self._image_backend = "hf"
+            img_hidden = getattr(self.image_encoder.config, "hidden_size", None) or 768
+        except (OSError, ValueError) as exc:
+            logger.warning(
+                "AutoModel.from_pretrained failed for %s (%s); falling back to open_clip",
+                cfg.image_backbone, exc,
+            )
+            import open_clip
+            ref = cfg.image_backbone
+            if not ref.startswith("hf-hub:"):
+                ref = "hf-hub:" + ref
+            oc_model, _, _ = open_clip.create_model_and_transforms(ref)
+            # We only need the visual tower; discard the text tower.
+            self.image_encoder = oc_model.visual
+            self._image_backend = "open_clip"
+            # Infer hidden size from a dry-run or from known BiomedCLIP spec (768).
+            img_hidden = getattr(self.image_encoder, "output_dim", None) or getattr(
+                getattr(self.image_encoder, "trunk", None), "num_features", None
+            ) or 768
+
         self._freeze_image(cfg.freeze_image_layers)
         self.image_domain_adapter = _DomainAdapter(img_hidden, hidden=img_hidden)
         self.image_proj = nn.Linear(img_hidden, cfg.shared_dim)
@@ -223,14 +248,39 @@ class ImageGroundedVerifier(nn.Module):
     # ------------------------------------------------------------- encoders
 
     def encode_image(self, pixel_values: torch.Tensor) -> torch.Tensor:
-        """Return (B, 1 + P, shared_dim) with CLS followed by patch tokens."""
-        outputs = self.image_encoder(pixel_values=pixel_values, return_dict=True)
-        if hasattr(outputs, "last_hidden_state"):
-            tokens = outputs.last_hidden_state
+        """Return (B, 1 + P, shared_dim) with CLS followed by patch tokens.
+
+        Supports two backends chosen at __init__ time:
+        - ``hf``: standard HuggingFace AutoModel exposing ``last_hidden_state``
+        - ``open_clip``: open_clip visual tower; per-patch features obtained by
+          forwarding through the trunk (timm-backed) with grad enabled.
+        """
+        if self._image_backend == "hf":
+            outputs = self.image_encoder(pixel_values=pixel_values, return_dict=True)
+            if hasattr(outputs, "last_hidden_state"):
+                tokens = outputs.last_hidden_state
+            else:
+                tokens = outputs.get("last_hidden_state", None)
+                if tokens is None:
+                    raise RuntimeError("image encoder did not return last_hidden_state")
         else:
-            tokens = outputs.get("last_hidden_state", None)
-            if tokens is None:
-                raise RuntimeError("image encoder did not return last_hidden_state")
+            # open_clip visual path. For timm-backed ViTs the trunk's forward_features
+            # returns per-patch tokens including the CLS at position 0, shape (B, 1+P, D).
+            trunk = getattr(self.image_encoder, "trunk", None)
+            if trunk is not None and hasattr(trunk, "forward_features"):
+                tokens = trunk.forward_features(pixel_values)
+            elif hasattr(self.image_encoder, "forward_features"):
+                tokens = self.image_encoder.forward_features(pixel_values)
+            else:
+                raise RuntimeError(
+                    "open_clip image encoder has no forward_features method; "
+                    "cannot extract per-patch features"
+                )
+            # Some timm variants return (B, D) pooled rather than (B, N, D);
+            # handle the expected (B, N, D) case; fall back to adding a length-1
+            # axis so the downstream code does not fail.
+            if tokens.dim() == 2:
+                tokens = tokens.unsqueeze(1)
         tokens = self.image_domain_adapter(tokens)
         return self.image_proj(tokens)
 

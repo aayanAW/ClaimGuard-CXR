@@ -87,14 +87,57 @@ def _split_lung_left_right(full_lung: np.ndarray) -> tuple[np.ndarray, np.ndarra
     return left_comp.astype(np.uint8), right_comp.astype(np.uint8)
 
 
+# Module-level lazy-init for the PSPNet segmenter. Loading the model (~10s)
+# per image destroys throughput when processing thousands of images, so we
+# keep a single model instance (pushed to GPU when available) across calls.
+_PSPNET_MODEL = None
+_PSPNET_DEVICE = None
+
+# Disk cache for computed masks, controllable via env var so the same cache
+# can be reused across orchestrator spawns.
+import os as _os
+_ANATOMY_CACHE_DIR = Path(_os.environ.get("ANATOMY_MASK_CACHE", "/data/anatomy_masks_v5_cache"))
+
+
+def _get_pspnet():
+    """Return the (model, device) pair, loading once on first call."""
+    global _PSPNET_MODEL, _PSPNET_DEVICE
+    if _PSPNET_MODEL is None:
+        import torch
+        import torchxrayvision as xrv  # type: ignore[import-untyped]
+
+        model = xrv.baseline_models.chestx_det.PSPNet()
+        model.eval()
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        model = model.to(device)
+        _PSPNET_MODEL = model
+        _PSPNET_DEVICE = device
+        logger.info("PSPNet loaded once; device=%s", device)
+    return _PSPNET_MODEL, _PSPNET_DEVICE
+
+
 def compute_anatomy_masks(image_path: Path) -> AnatomyMask:
     """Run a pretrained segmenter and produce 5-region masks.
 
     Requires torchxrayvision. If the model is unavailable we fall back to
     image-midline heuristic: the matcher will still mostly function but with
-    softer overlap scores.
+    softer overlap scores. Masks are cached to disk under ``ANATOMY_MASK_CACHE``
+    (default ``/data/anatomy_masks_v5_cache``) keyed by image path stem so
+    repeated runs do not recompute.
     """
+    import pickle
     from PIL import Image
+
+    # Cache check
+    image_id = image_path.stem
+    cache_file = _ANATOMY_CACHE_DIR / f"{image_id}.pkl"
+    if cache_file.exists():
+        try:
+            with cache_file.open("rb") as f:
+                cached: AnatomyMask = pickle.load(f)
+            return cached
+        except Exception as exc:
+            logger.warning("anatomy cache corrupt for %s (%s); recomputing", image_id, exc)
 
     img = Image.open(image_path).convert("L")
     W, H = img.size
@@ -103,11 +146,10 @@ def compute_anatomy_masks(image_path: Path) -> AnatomyMask:
         import torch
         import torchxrayvision as xrv  # type: ignore[import-untyped]
 
-        model = xrv.baseline_models.chestx_det.PSPNet()
-        model.eval()
+        model, device = _get_pspnet()
         arr = np.asarray(img.resize((512, 512))).astype(np.float32)
         arr = (arr / 255.0 * 2) - 1.0
-        t = torch.from_numpy(arr)[None, None]
+        t = torch.from_numpy(arr)[None, None].to(device)
         with torch.no_grad():
             pred = model(t).sigmoid().cpu().numpy()[0]
         # torchxrayvision pspnet outputs 14 anatomy classes; the ones we care about:
@@ -184,12 +226,22 @@ def compute_anatomy_masks(image_path: Path) -> AnatomyMask:
             "mediastinum": np.zeros((H, W), dtype=np.uint8),
         }
 
-    return AnatomyMask(
+    mask_obj = AnatomyMask(
         image_id=image_path.stem,
         masks=regions_out,
         height=H,
         width=W,
     )
+
+    # Cache write (best-effort; failure must not break pipeline)
+    try:
+        _ANATOMY_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        with (_ANATOMY_CACHE_DIR / f"{image_id}.pkl").open("wb") as f:
+            pickle.dump(mask_obj, f)
+    except Exception as exc:
+        logger.debug("anatomy cache write failed for %s: %s", image_id, exc)
+
+    return mask_obj
 
 
 def save_anatomy_masks(masks: AnatomyMask, out_dir: Path) -> None:
