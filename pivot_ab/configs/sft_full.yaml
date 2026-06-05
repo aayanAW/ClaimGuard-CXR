@@ -1,0 +1,38 @@
+# Configuration (iv): the full Pivot A+B method.
+# SFT + L_faith + dual filter. This is the headline configuration.
+
+backbone: "google/medgemma-4b-it"
+lora_rank: 16
+lora_alpha: 32
+lora_dropout: 0.05
+lora_target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
+
+train_jsonl: "/data/groundbench_v5/all_v6/groundbench_v6_train.jsonl"
+val_jsonl: "/data/groundbench_v5/all_v6/groundbench_v6_val.jsonl"
+weights_jsonl: "/data/pivot_ab/dual_filter_weights.jsonl"
+prompt_template: "Claim: {claim}\nEvidence: {evidence}\nReport:"
+max_text_tokens: 512
+max_target_tokens: 256
+image_size: 224
+
+n_epochs: 2
+batch_size: 2
+grad_accum_steps: 8
+lr_head: 5.0e-5
+lr_lora: 2.0e-4
+weight_decay: 0.01
+warmup_steps: 200
+
+enable_faith_loss: true
+enable_dual_filter: true
+enable_flipping: true
+lambda_faith: 0.3
+margin_kl: 0.3  # post-2026-05-03 fix: log-prob gain margin (nats), not KL
+
+monitor_log_every: 50
+
+seed: 42
+bf16: true
+output_dir: "/data/checkpoints/pivot_ab_v2/sft_full"
+log_every: 20
+save_every_steps: 500

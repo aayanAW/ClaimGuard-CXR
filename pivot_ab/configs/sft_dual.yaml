@@ -1,0 +1,44 @@
+# Configuration (iii): SFT + dual adversarial filter (no faithfulness loss).
+# Tests whether dual filtering alone (without L_faith) produces faithful
+# generators. Compare to (i) sft_only and (iv) sft_full.
+#
+# REQUIRES: dual_filter_weights.jsonl produced by:
+#   1. v5/ho_filter.py:run_ho_filter on the train JSONL
+#   2. pivot_ab/image_only_filter.py:run_image_only_filter on the same
+#   3. pivot_ab/dual_filter.py:combine_dual_filters
+
+backbone: "google/medgemma-4b-it"
+lora_rank: 16
+lora_alpha: 32
+lora_dropout: 0.05
+lora_target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
+
+train_jsonl: "/data/groundbench_v5/all_v6/groundbench_v6_train.jsonl"
+val_jsonl: "/data/groundbench_v5/all_v6/groundbench_v6_val.jsonl"
+weights_jsonl: "/data/pivot_ab/dual_filter_weights.jsonl"
+prompt_template: "Claim: {claim}\nEvidence: {evidence}\nReport:"
+max_text_tokens: 512
+max_target_tokens: 256
+image_size: 224
+
+n_epochs: 2
+batch_size: 2
+grad_accum_steps: 8
+lr_head: 5.0e-5
+lr_lora: 2.0e-4
+weight_decay: 0.01
+warmup_steps: 200
+
+enable_faith_loss: false
+enable_dual_filter: true
+enable_flipping: false
+lambda_faith: 0.0
+margin_kl: 0.3  # post-2026-05-03 fix: log-prob gain margin (nats), not KL
+
+monitor_log_every: 50
+
+seed: 42
+bf16: true
+output_dir: "/data/checkpoints/pivot_ab_v2/sft_dual"
+log_every: 20
+save_every_steps: 500
